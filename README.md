@@ -2,6 +2,13 @@
 
 技术栈：React + Ant Design + Java Spring Boot + MySQL
 
+## 在线预览（HTML 完整版原型）
+
+- **完整版**：https://testdian.github.io/huaxia-climate-risk/index-full.html
+- **仓库**：https://github.com/testdian/huaxia-climate-risk
+
+纯静态 Mock 数据，无需后端。由 GitHub Pages 自动部署 `frontend-html/`。
+
 ## UI 主色
 
 - 主色采用「查询」按钮取样：`#34776B`
