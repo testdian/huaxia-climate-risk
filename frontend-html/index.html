@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>气候风险压测 - 华夏银行绿金系统</title>
+  <link rel="stylesheet" href="css/theme.css" />
+</head>
+<body class="app-body">
+  <div class="app">
+    <aside class="sider">
+      <div class="sider-logo">气候风险压测</div>
+      <ul class="menu" id="menu">
+        <li><a href="#" data-page="tasks" class="active">压测任务管理</a></li>
+        <li><a href="#" data-page="results">压测结果分析</a></li>
+        <li class="menu-group-title">基础配置</li>
+        <li><a href="#" data-page="factors">因子库管理</a></li>
+        <li><a href="#" data-page="mapping">行业映射关系</a></li>
+      </ul>
+    </aside>
+    <div class="main">
+      <header class="header">
+        <span class="sub">华夏银行绿金系统</span>
+        <span>总行管理员</span>
+      </header>
+      <div class="content" id="content"></div>
+      <footer class="footer">© 华夏银行 绿色金融系统 · 气候风险压测模块（原型演示）</footer>
+    </div>
+  </div>
+
+  <div class="modal-mask" id="modalCreate">
+    <div class="modal" role="dialog" aria-labelledby="modalTitle">
+      <div class="modal-hd" id="modalTitle">新建气候风险压测任务</div>
+      <div class="modal-bd">
+        <div class="form-row">
+          <label><span class="req">*</span>任务名称</label>
+          <input class="input" id="f_name" placeholder="请输入" />
+        </div>
+        <div class="form-row">
+          <label><span class="req">*</span>报告期开始</label>
+          <input class="input" id="f_start" type="date" />
+        </div>
+        <div class="form-row">
+          <label><span class="req">*</span>报告期结束</label>
+          <input class="input" id="f_end" type="date" />
+        </div>
+        <div class="form-row">
+          <label>数据口径</label>
+          <input class="input" id="f_caliber" placeholder="如：合并报表、母公司" />
+        </div>
+        <div class="form-row">
+          <label>任务说明</label>
+          <textarea class="textarea" id="f_desc" placeholder="请输入"></textarea>
+        </div>
+      </div>
+      <div class="modal-ft">
+        <button type="button" class="btn btn-default" onclick="closeModal()">取消</button>
+        <button type="button" class="btn btn-primary" onclick="submitCreateTask()">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/mock-data.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

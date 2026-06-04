@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+frontend-html/tests/node_modules/
+
+# Java / Maven
+backend/target/
+*.class
+
+# OS & IDE
+.DS_Store
+.idea/
+.vscode/
+*.iml
+
+# Logs & env
+*.log
+.env
+.env.*
+
+# Office temp
+.~*
+*.tmp
+
+# E2E artifacts
+frontend-html/tests/e2e-failure.png

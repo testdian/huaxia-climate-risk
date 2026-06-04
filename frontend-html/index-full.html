@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>气候风险压测（完整版）- 华夏银行绿金系统</title>
+  <link rel="stylesheet" href="css/theme.css" />
+  <link rel="stylesheet" href="css/full-ext.css" />
+</head>
+<body class="app-body">
+  <div class="app" id="appRoot">
+    <aside class="sider" id="sider">
+      <div class="sider-head">
+        <div class="sider-logo">
+          <span class="logo-text">华夏银行绿金系统</span>
+        </div>
+      </div>
+      <nav class="sider-body">
+        <ul class="menu" id="menu">
+          <li class="menu-section open" data-section="stress">
+            <button type="button" class="menu-level-1" aria-expanded="true">
+              <span class="menu-level-text">气候风险压测</span>
+              <span class="menu-chevron" aria-hidden="true"></span>
+            </button>
+            <ul class="menu-sub">
+              <li><a data-page="tasks" class="active" title="压测任务管理">
+                <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg></span>
+                <span class="menu-text">压测任务管理</span>
+              </a></li>
+              <li><a data-page="results" title="压测结果分析">
+                <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 20V10M12 20V4M6 20v-6"/></svg></span>
+                <span class="menu-text">压测结果分析</span>
+              </a></li>
+              <li><a data-page="exports" title="导出记录">
+                <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg></span>
+                <span class="menu-text">导出记录</span>
+              </a></li>
+            </ul>
+          </li>
+          <li class="menu-section open" data-section="config">
+            <button type="button" class="menu-level-1" aria-expanded="true">
+              <span class="menu-level-text">基础配置</span>
+              <span class="menu-chevron" aria-hidden="true"></span>
+            </button>
+            <ul class="menu-sub">
+              <li><a data-page="factors" title="因子库管理">
+                <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg></span>
+                <span class="menu-text">因子库管理</span>
+              </a></li>
+              <li><a data-page="scenarios" title="场景计算方法配置">
+                <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></span>
+                <span class="menu-text">场景计算方法配置</span>
+              </a></li>
+              <li><a data-page="mappings" title="行业映射关系">
+                <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg></span>
+                <span class="menu-text">行业映射关系</span>
+              </a></li>
+              <li><a data-page="calc-doc" title="计算方法说明">
+                <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg></span>
+                <span class="menu-text">计算方法说明</span>
+              </a></li>
+            </ul>
+          </li>
+          <li class="menu-section menu-section--nav" data-section="perms">
+            <button type="button" class="menu-level-1 menu-level-1--nav" data-nav-page="menu-perms" title="菜单权限">
+              <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15a3 3 0 100-6 3 3 0 000 6z"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></span>
+              <span class="menu-level-text">菜单权限</span>
+            </button>
+          </li>
+        </ul>
+      </nav>
+      <div class="sider-foot">
+        <div class="sider-user" title="总行管理员">
+          <span class="sider-user-avatar" aria-hidden="true">管</span>
+          <span class="sider-user-name">总行管理员</span>
+        </div>
+        <button type="button" class="sider-collapse-btn" id="siderToggle" title="收起菜单" aria-label="收起菜单">
+          <svg class="ico-collapse" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+          <svg class="ico-expand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+        </button>
+      </div>
+    </aside>
+    <div class="main">
+      <header class="header">
+        <span class="sub" id="pageTitle">压测任务管理</span>
+      </header>
+      <div class="content" id="content"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast success"></div>
+
+  <!-- 任务操作日志抽屉 -->
+  <div class="drawer-mask" id="taskLogDrawerMask" onclick="CRST_APP.closeTaskLogDrawer()" aria-hidden="true"></div>
+  <aside class="drawer-panel" id="taskLogDrawer" aria-hidden="true" role="dialog" aria-labelledby="taskLogDrawerTitle">
+    <div class="drawer-hd">
+      <h3 class="drawer-title" id="taskLogDrawerTitle">操作日志</h3>
+      <button type="button" class="drawer-close" onclick="CRST_APP.closeTaskLogDrawer()" aria-label="关闭">&times;</button>
+    </div>
+    <p class="drawer-sub" id="taskLogDrawerSub"></p>
+    <div class="drawer-bd" id="taskLogDrawerBody"></div>
+  </aside>
+
+  <!-- 因子表单 -->
+  <div class="modal-mask" id="modalFactor">
+    <div class="modal modal-lg">
+      <div class="modal-hd" id="modalTitle">因子</div>
+      <div class="modal-bd">
+        <div class="form-grid-2">
+          <div class="form-row">
+            <label><span class="req">*</span>因子编码</label>
+            <input class="input" id="f_code" placeholder="如 TRANS_CHEM_01" />
+          </div>
+          <div class="form-row">
+            <label><span class="req">*</span>因子名称</label>
+            <input class="input" id="f_name" />
+          </div>
+          <div class="form-row">
+            <label>国标代码</label>
+            <input class="input" id="f_gb" placeholder="如 C2614" />
+          </div>
+          <div class="form-row">
+            <label>适用行业</label>
+            <input class="input" id="f_ind" placeholder="化工 / 钢铁 / -" />
+          </div>
+          <div class="form-row">
+            <label>细分类型</label>
+            <input class="input" id="f_subType" placeholder="如 有机化学原料" />
+          </div>
+          <div class="form-row">
+            <label>场景类型</label>
+            <select class="select" id="f_type">
+              <option value="TRANSITION">转型风险 TRANSITION</option>
+              <option value="PHYSICAL">物理风险 PHYSICAL</option>
+              <option value="COMPREHENSIVE">综合风险 COMPREHENSIVE</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label>因子值</label>
+            <input class="input" id="f_val" type="number" step="0.01" />
+          </div>
+          <div class="form-row">
+            <label>单位</label>
+            <select class="select" id="f_unit">
+              <option value="ratio">ratio</option>
+              <option value="percent">percent</option>
+              <option value="tCO2e/百万元">tCO2e/百万元</option>
+              <option value="tCO2e/万人次">tCO2e/万人次</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label>版本</label>
+            <input class="input" id="f_version" placeholder="如 V2.0-行内方法" />
+          </div>
+          <div class="form-row">
+            <label>生效日期</label>
+            <input class="input" id="f_effectiveFrom" type="date" />
+          </div>
+        </div>
+      </div>
+      <div class="modal-ft">
+        <button class="btn btn-default" onclick="CRST_APP.hideModal()">关闭</button>
+        <button class="btn btn-primary" onclick="CRST_APP.saveFactor()">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 场景公式表单 -->
+  <div class="modal-mask" id="modalScenario">
+    <div class="modal modal-xl">
+      <div class="modal-hd">场景计算方法</div>
+      <div class="modal-bd">
+        <div class="form-grid-2">
+          <div class="form-row">
+            <label><span class="req">*</span>场景编码</label>
+            <input class="input" id="s_code" />
+          </div>
+          <div class="form-row">
+            <label><span class="req">*</span>场景名称</label>
+            <input class="input" id="s_name" />
+          </div>
+          <div class="form-row">
+            <label>场景类型</label>
+            <select class="select" id="s_type">
+              <option value="TRANSITION">转型风险</option>
+              <option value="PHYSICAL">物理风险</option>
+              <option value="COMPREHENSIVE">综合风险</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label>公式版本</label>
+            <input class="input" id="s_formula_version" placeholder="如 V2.0-行内方法" />
+          </div>
+          <div class="form-row">
+            <label>测试年</label>
+            <input class="input" id="s_test_year" type="number" min="2025" max="2100" />
+          </div>
+          <div class="form-row">
+            <label>免费配额2025</label>
+            <input class="input" id="s_quota_2025" type="number" step="0.0001" min="0" max="1" />
+          </div>
+          <div class="form-row">
+            <label>免费配额2040</label>
+            <input class="input" id="s_quota_2040" type="number" step="0.0001" min="0" max="1" />
+          </div>
+          <div class="form-row">
+            <label>碳价2025（元/吨）</label>
+            <input class="input" id="s_price_2025" type="number" step="1" min="0" />
+          </div>
+          <div class="form-row">
+            <label>碳价2040（元/吨）</label>
+            <input class="input" id="s_price_2040" type="number" step="1" min="0" />
+          </div>
+        </div>
+        <div class="form-row">
+          <label><span class="req">*</span>计算公式</label>
+          <textarea class="textarea" id="s_formula" style="min-height:72px" placeholder="例：调整后收入 = 收入 × (1 - 转型因子 × 碳价冲击系数)"></textarea>
+        </div>
+        <div class="form-row">
+          <label>输入字段（逗号分隔）</label>
+          <input class="input" id="s_in" placeholder="revenue, factor, carbonPrice, ead, pd, lgd" />
+        </div>
+        <div class="form-row">
+          <label>输出字段（逗号分隔）</label>
+          <input class="input" id="s_out" placeholder="revenueAfter, eclAfter, impactRate" />
+        </div>
+        <p class="flow-hint">保存为草稿 → 发布生效后新任务立即使用；已发布场景可停用，不可直接删除。</p>
+      </div>
+      <div class="modal-ft">
+        <button class="btn btn-default" onclick="CRST_APP.hideModal()">关闭</button>
+        <button class="btn btn-primary" onclick="CRST_APP.saveScenario()">保存草稿</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 行业映射表单 -->
+  <div class="modal-mask" id="modalMapping">
+    <div class="modal">
+      <div class="modal-hd">行业映射</div>
+      <div class="modal-bd">
+        <div class="form-row">
+          <label><span class="req">*</span>接口行业（财务系统）</label>
+          <input class="input" id="m_api" placeholder="如 制造业-化工" />
+        </div>
+        <div class="form-row">
+          <label><span class="req">*</span>标准行业（压测口径）</label>
+          <input class="input" id="m_std" placeholder="如 化工" />
+        </div>
+        <div class="form-row">
+          <label>映射类型</label>
+          <select class="select" id="m_type">
+            <option value="一对一">一对一</option>
+            <option value="多对一">多对一</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label>国标代码</label>
+          <input class="input" id="m_gb" placeholder="如 C2614" />
+        </div>
+      </div>
+      <div class="modal-ft">
+        <button class="btn btn-default" onclick="CRST_APP.hideModal()">关闭</button>
+        <button class="btn btn-primary" onclick="CRST_APP.saveMapping()">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 导出压测明细（字段多选） -->
+  <div class="modal-mask" id="modalExportDetail">
+    <div class="modal modal-lg modal-export-detail">
+      <div class="modal-hd">导出压测明细</div>
+      <div class="modal-bd">
+        <p class="export-detail-hint">请勾选需要导出的列，确认后将生成 Excel 并写入「导出记录」。</p>
+        <div class="export-field-toolbar">
+          <span class="export-field-toolbar-label">导出字段</span>
+          <button type="button" class="btn btn-link" onclick="CRST_APP.toggleExportDetailFields(true)">全选</button>
+          <button type="button" class="btn btn-link" onclick="CRST_APP.toggleExportDetailFields(false)">清空</button>
+        </div>
+        <div class="export-field-grid" id="ed_fields"></div>
+      </div>
+      <div class="modal-ft">
+        <button class="btn btn-default" onclick="CRST_APP.hideModal()">取消</button>
+        <button class="btn btn-primary" onclick="CRST_APP.doExportDetail()">确认导出</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 删除任务确认 -->
+  <div class="modal-mask" id="modalTaskDelete">
+    <div class="modal">
+      <div class="modal-hd">删除任务确认</div>
+      <div class="modal-bd">
+        <p>请您确认是否删除该核算任务：<strong id="deleteTaskName">-</strong>？</p>
+      </div>
+      <div class="modal-ft">
+        <button class="btn btn-default" onclick="CRST_APP.cancelDeleteTask()">取消</button>
+        <button class="btn btn-primary" onclick="CRST_APP.confirmDeleteTask()">确认删除</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/carbon-calculation-logic.js"></script>
+  <script src="js/calc-doc-content.js"></script>
+  <script src="js/store-full.js"></script>
+  <script src="js/app-full.js"></script>
+</body>
+</html>
