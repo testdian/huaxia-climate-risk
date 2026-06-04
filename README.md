@@ -4,7 +4,8 @@
 
 ## 在线预览（HTML 完整版原型）
 
-- **完整版**：https://testdian.github.io/huaxia-climate-risk/index-full.html
+- **完整版**：https://testdian.github.io/huaxia-climate-risk/frontend-html/index-full.html
+- **入口**：https://testdian.github.io/huaxia-climate-risk/（自动跳转完整版）
 - **仓库**：https://github.com/testdian/huaxia-climate-risk
 
 纯静态 Mock 数据，无需后端。由 GitHub Pages 自动部署 `frontend-html/`。
