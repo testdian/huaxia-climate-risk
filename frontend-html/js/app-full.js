@@ -17,7 +17,7 @@
   let taskEditMode = false;
   let taskViewMode = false;
   let detailStep = 0;
-  const TAB_TO_STEP = { overview: 0, sync: 1, process: 2, external: 3, stress: 3, result: 4, log: 4 };
+  const TAB_TO_STEP = { overview: 0, sync: 1, process: 2, external: 3, stress: 3, result: 4, log: 5 };
   let taskFilters = { name: '', periodStart: '', periodEnd: '', step: '', factorVersion: '' };
   const LIST_PAGE_SIZES = [10, 20, 50, 100];
   const listPagers = {};
@@ -25,6 +25,7 @@
   const syncListFilters = {};
   /** 任务详情压测结果筛选：taskId -> filters */
   const taskResultFilters = {};
+  let exportFilters = { taskName: '', scope: '' };
   const SYNC_STATUS_TEXT = {
     USABLE: '可使用',
     NEED_AVG: '需计算',
@@ -35,10 +36,24 @@
   let toastTimer = null;
   let taskLogDrawerOpen = false;
 
+  let airportThroughputRows = [
+    { id: 1, airportName: '华南机场运营有限公司', airportCode: 'CAN', year: 2024, passengerThroughput: 6350, cargoThroughput: 205, source: '机场运营数据接口', status: 'ENABLED', updatedAt: '2025-06-04' },
+    { id: 2, airportName: '华东枢纽机场股份', airportCode: 'SHA', year: 2024, passengerThroughput: 4720, cargoThroughput: 168, source: '手工维护', status: 'ENABLED', updatedAt: '2025-06-04' },
+  ];
+  let nextAirportThroughputId = 10;
+  let airportThroughputEditId = null;
+
   const TASK_EDITABLE = ['DRAFT', 'SYNCING', 'PENDING_CONFIRM', 'PROCESSING', 'READY_STRESS', 'STRESSING', 'COMPLETED'];
   const TASK_DELETABLE = ['DRAFT'];
   const STEP_ORDER = ['DRAFT', 'SYNCING', 'PENDING_CONFIRM', 'PROCESSING', 'READY_STRESS', 'STRESSING', 'COMPLETED', 'ARCHIVED'];
-  const STEP_LABELS = ['创建任务', '数据同步与确认', '数据处理', '场景压测', '完成'];
+  const STEP_LABELS = ['创建任务', '数据同步与确认', '数据处理', '场景压测', '压测结果', '应用报送'];
+
+  const REGULATORY_REPORT_FILES = [
+    { name: '汇总表.xlsx', desc: '按人民银行模板汇总的压测结果指标' },
+    { name: '明细表.xlsx', desc: '客户/敞口级明细数据' },
+    { name: '风险提示清单.xlsx', desc: '触发阈值的客户风险提示清单' },
+    { name: '口径说明.docx', desc: '报送数据口径与例外说明' },
+  ];
 
   function tag(status, map) {
     const m = map[status] || { cls: 'tag-default', text: status };
@@ -110,6 +125,24 @@
     return t && ['COMPLETED', 'ARCHIVED'].includes(t.status);
   }
 
+  function canUseApplicationReport(t) {
+    if (!canExportTaskResults(t) || t.status === 'ARCHIVED') return false;
+    if (!(resultsByTask[t.id] || []).length) return false;
+    if (taskEditMode && isStressOnlyEditTask(t) && detailStep === 3) return false;
+    return true;
+  }
+
+  function goToApplicationReport(id) {
+    const t = getTask(id);
+    if (!canUseApplicationReport(t)) {
+      toast('请先完成压测并生成压测结果', 'error');
+      return;
+    }
+    detailStep = 5;
+    addLog(id, '压测结果：确认结果，进入应用报送');
+    navigate('task-detail', id, 5);
+  }
+
   function getSummaryExportFieldLabels(taskId) {
     const dim = getTaskResultFilter(taskId).summaryDim === 'branch' ? '分行' : '行业';
     return [dim, '样本数', '平均影响率', '碳费用合计(万)', 'ECL增量合计(万)', '违约数'];
@@ -154,7 +187,10 @@
   }
 
   function stepIndex(status) {
-    const map = { DRAFT: 0, SYNCING: 1, PENDING_CONFIRM: 1, PROCESSING: 2, READY_STRESS: 3, STRESSING: 3, COMPLETED: 4, ARCHIVED: 4 };
+    const map = {
+      DRAFT: 0, SYNCING: 1, PENDING_CONFIRM: 1, PROCESSING: 2,
+      READY_STRESS: 3, STRESSING: 3, COMPLETED: 5, ARCHIVED: 5,
+    };
     return map[status] ?? 0;
   }
 
@@ -166,7 +202,7 @@
   function taskStepTag(status) {
     const idx = stepIndex(status);
     const text = taskStepLabel(status);
-    const cls = idx >= 4 ? 'tag-success' : idx >= 2 ? 'tag-processing' : idx === 1 ? 'tag-warning' : 'tag-default';
+    const cls = idx >= 5 ? 'tag-success' : idx >= 4 ? 'tag-processing' : idx >= 2 ? 'tag-processing' : idx === 1 ? 'tag-warning' : 'tag-default';
     return `<span class="tag ${cls}">${esc(text)}</span>`;
   }
 
@@ -377,6 +413,77 @@
 
   function countNeedAvg(recs) {
     return recs.filter((r) => effectiveSyncStatus(r) === 'NEED_AVG').length;
+  }
+
+  function isAirportEnterprise(r) {
+    if (!r) return false;
+    if (r.standardIndustry === '机场企业' || r.standardIndustry === '机场') return true;
+    if (r.gbIndustryCode === 'G5631' || r.emissionFactorCode === 'EMISSION_G5631') return true;
+    const api = String(r.apiIndustry || '');
+    return api.includes('机场') || api.includes('G5631');
+  }
+
+  function getTaskReportYear(t) {
+    const y = parseInt(String(t?.reportPeriodEnd || '').slice(0, 4), 10);
+    return Number.isFinite(y) ? y : new Date().getFullYear();
+  }
+
+  function lookupAirportThroughput(companyName, year) {
+    const enabled = airportThroughputRows.filter((x) => x.status === 'ENABLED');
+    const matchName = (x) => x.airportName === companyName
+      || companyName.includes(x.airportName)
+      || x.airportName.includes(companyName);
+    const exact = enabled.find((x) => matchName(x) && x.year === year);
+    if (exact) return exact;
+    return enabled.filter(matchName).sort((a, b) => b.year - a.year)[0] || null;
+  }
+
+  function applyAirportThroughputToRecord(r, t) {
+    if (!isAirportEnterprise(r)) return;
+    const hit = lookupAirportThroughput(r.companyName, getTaskReportYear(t));
+    if (hit) {
+      r.passengerThroughput = hit.passengerThroughput;
+      r.cargoThroughput = hit.cargoThroughput;
+      r.airportCode = hit.airportCode;
+      r.throughputSource = hit.source;
+      r.throughputFetched = true;
+      if (r.dataAvailability === 'ABNORMAL' && String(r.availabilityReason || '').includes('旅客吞吐量')) {
+        r.dataAvailability = r.revenue != null ? 'USABLE' : 'NEED_AVG';
+        r.availabilityReason = r.dataAvailability === 'NEED_AVG' ? '关键指标缺失，需行业均值补算' : '财务与旅客吞吐量完整';
+        r.dataSource = '接口原始；机场吞吐量维护表';
+      } else if (r.dataAvailability === 'USABLE') {
+        r.availabilityReason = '财务与旅客吞吐量完整';
+        r.dataSource = r.dataSource && !r.dataSource.includes('机场吞吐量')
+          ? `${r.dataSource}；机场吞吐量维护表` : (r.dataSource || '机场吞吐量维护表');
+      }
+    } else {
+      r.throughputFetched = false;
+      r.dataAvailability = 'ABNORMAL';
+      r.availabilityReason = '旅客吞吐量未维护，请在「机场吞吐量维护」补录后重新同步';
+      r.dataSource = '待调取';
+    }
+  }
+
+  function fetchAirportThroughputForTask(taskId) {
+    const t = getTask(taskId);
+    const recs = recordsByTask[taskId] || [];
+    const airportRecs = recs.filter(isAirportEnterprise);
+    let success = 0;
+    let fail = 0;
+    airportRecs.forEach((r) => {
+      applyAirportThroughputToRecord(r, t);
+      if (r.throughputFetched) success += 1;
+      else fail += 1;
+    });
+    return { total: airportRecs.length, success, fail };
+  }
+
+  function refreshSyncStats(taskId) {
+    const t = getTask(taskId);
+    const recs = recordsByTask[taskId] || [];
+    if (!t) return;
+    const fail = recs.filter((r) => effectiveSyncStatus(r) === 'ABNORMAL').length;
+    t.syncStats = { total: recs.length, fail, success: recs.length - fail };
   }
 
   function defaultStressParams(t, scenarioCode) {
@@ -634,6 +741,119 @@
     })).sort((a, b) => b.avgImpactPct - a.avgImpactPct);
   }
 
+  function summarizeEmissionResults(list, dim) {
+    const map = {};
+    list.forEach((r) => {
+      const key = dim === 'branch' ? (r.branchName || '-') : (r.standardIndustry || '-');
+      if (!map[key]) map[key] = { key, count: 0, sumEmission: 0, sumCarbonCost: 0 };
+      map[key].count++;
+      map[key].sumEmission += r.carbonEmission || 0;
+      map[key].sumCarbonCost += r.carbonCost || 0;
+    });
+    return Object.values(map).sort((a, b) => b.sumCarbonCost - a.sumCarbonCost);
+  }
+
+  function summarizePortfolioCredit(list, taskId) {
+    const branchMap = {};
+    list.forEach((r) => {
+      const key = r.branchName || '-';
+      if (!branchMap[key]) {
+        branchMap[key] = { dim: key, count: 0, eclBefore: 0, eclAfter: 0, defaultCount: 0 };
+      }
+      branchMap[key].count++;
+      branchMap[key].eclBefore += r.eclBefore || 0;
+      branchMap[key].eclAfter += r.eclAfter || 0;
+      if (r.defaultFlag) branchMap[key].defaultCount++;
+    });
+    const branches = Object.values(branchMap);
+    const total = branches.reduce((acc, b) => ({
+      dim: '总行',
+      count: acc.count + b.count,
+      eclBefore: acc.eclBefore + b.eclBefore,
+      eclAfter: acc.eclAfter + b.eclAfter,
+      defaultCount: acc.defaultCount + b.defaultCount,
+    }), { dim: '总行', count: 0, eclBefore: 0, eclAfter: 0, defaultCount: 0 });
+    const toRow = (x) => ({
+      ...x,
+      eclDelta: x.eclAfter - x.eclBefore,
+      provision: Math.round(x.eclAfter * 1.05),
+      car: Math.max(8, 12.8 - (x.eclAfter - x.eclBefore) / 500000).toFixed(2) + '%',
+    });
+    return [toRow(total), ...branches.map(toRow).sort((a, b) => b.eclDelta - a.eclDelta)];
+  }
+
+  function getSyncRecordForResult(taskId, companyName) {
+    return (recordsByTask[taskId] || []).find((r) => r.companyName === companyName);
+  }
+
+  function emissionCalcBasisLabel(r, taskId) {
+    const rec = getSyncRecordForResult(taskId, r.companyName);
+    if (rec && isAirportEnterprise(rec) && rec.passengerThroughput) {
+      return `排放因子 × 旅客吞吐量（${Number(rec.passengerThroughput).toLocaleString()} 万人次）`;
+    }
+    if (rec && isAirportEnterprise(rec)) return '排放因子 × 旅客吞吐量';
+    return '排放因子 × 营业收入';
+  }
+
+  function calcResultFinancials(r) {
+    const revenue = (r.revenueAfter || 0) + (r.carbonCost || 0);
+    const operatingExpense = revenue * (r.costIncomeRatio ?? 0.85) + (r.carbonCost || 0);
+    return {
+      revenue,
+      operatingExpense,
+      netProfit: r.netProfitAfter ?? 0,
+    };
+  }
+
+  function getEclMeta(taskId, companyName) {
+    return (eclByTask[taskId] || []).find((e) => e.companyName === companyName);
+  }
+
+  function renderTaskResultFilterBar(t, filter, scenarioOpts, yearOpts, industryOpts, branchOpts) {
+    return `<div class="filter-bar">
+      <input class="input" style="min-width:180px" placeholder="公司/分行/行业关键词" value="${esc(filter.keyword)}" oninput="CRST_APP.setTaskResultFilter(${t.id}, 'keyword', this.value)" />
+      <select class="select" onchange="CRST_APP.setTaskResultFilter(${t.id}, 'scenarioCode', this.value)">
+        <option value="">全部情景</option>
+        ${scenarioOpts.map((s) => `<option value="${esc(s.code)}" ${filter.scenarioCode === s.code ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}
+      </select>
+      <select class="select" onchange="CRST_APP.setTaskResultFilter(${t.id}, 'year', this.value)">
+        <option value="">全部年份</option>
+        ${yearOpts.map((y) => `<option value="${y}" ${String(filter.year) === String(y) ? 'selected' : ''}>${y}年</option>`).join('')}
+      </select>
+      <select class="select" onchange="CRST_APP.setTaskResultFilter(${t.id}, 'industry', this.value)">
+        <option value="">全部行业</option>
+        ${industryOpts.map((v) => `<option value="${esc(v)}" ${filter.industry === v ? 'selected' : ''}>${esc(v)}</option>`).join('')}
+      </select>
+      <select class="select" onchange="CRST_APP.setTaskResultFilter(${t.id}, 'branch', this.value)">
+        <option value="">全部分行</option>
+        ${branchOpts.map((v) => `<option value="${esc(v)}" ${filter.branch === v ? 'selected' : ''}>${esc(v)}</option>`).join('')}
+      </select>
+      <select class="select" onchange="CRST_APP.setTaskResultFilter(${t.id}, 'defaultOnly', this.value)">
+        <option value="" ${filter.defaultOnly !== 'Y' ? 'selected' : ''}>全部样本</option>
+        <option value="Y" ${filter.defaultOnly === 'Y' ? 'selected' : ''}>仅违约样本</option>
+      </select>
+      <button class="btn btn-default" onclick="CRST_APP.resetTaskResultFilter(${t.id})">重置筛选</button>
+    </div>`;
+  }
+
+  function getRiskWarningRows(taskId) {
+    const list = applyTaskResultFilter(resultsByTask[taskId] || [], getTaskResultFilter(taskId));
+    const map = new Map();
+    list.forEach((r) => {
+      const triggered = r.defaultFlag || (r.impactRate || 0) >= 0.12;
+      if (!triggered) return;
+      const prev = map.get(r.companyName);
+      if (!prev || (r.impactRate || 0) > (prev.impactRate || 0)) map.set(r.companyName, r);
+    });
+    return [...map.values()].sort((a, b) => (b.impactRate || 0) - (a.impactRate || 0));
+  }
+
+  function riskHintText(r) {
+    if (r.defaultFlag) return '资产负债率触发违约阈值';
+    if ((r.impactRate || 0) >= 0.12) return '气候转型影响率超预警线';
+    return '风险提示';
+  }
+
   function hasAvgCalculated(taskId) {
     return (avgByTask[taskId] || []).length > 0;
   }
@@ -660,6 +880,7 @@
         { page: 'factors', label: '因子库管理' },
         { page: 'scenarios', label: '场景计算方法配置' },
         { page: 'mappings', label: '行业映射关系' },
+        { page: 'airport-throughput', label: '机场吞吐量维护' },
         { page: 'calc-doc', label: '计算方法说明' },
       ],
     },
@@ -671,9 +892,12 @@
   );
 
   const MENU_PERM_KEY = 'crst-menu-visibility';
+  const MENU_HIDDEN_BY_DEFAULT = new Set(['scenarios', 'calc-doc']);
 
   function getDefaultMenuVisibility() {
-    return Object.fromEntries(MENU_REGISTRY.map((m) => [m.page, true]));
+    return Object.fromEntries(
+      MENU_REGISTRY.map((m) => [m.page, !MENU_HIDDEN_BY_DEFAULT.has(m.page)])
+    );
   }
 
   function getMenuVisibility() {
@@ -723,7 +947,7 @@
 
   const PAGE_SECTION = {
     tasks: 'stress', results: 'stress', exports: 'stress', 'task-detail': 'stress',
-    factors: 'config', scenarios: 'config', mappings: 'config', 'calc-doc': 'config',
+    factors: 'config', scenarios: 'config', mappings: 'config', 'airport-throughput': 'config', 'calc-doc': 'config',
     'menu-perms': 'perms',
   };
 
@@ -1003,8 +1227,8 @@
     const completedTaskView = isCompletedTaskViewMode(t);
     const resultTools = showTaskResultTools(t);
     const readonly = t.status === 'ARCHIVED' || (taskViewMode && !completedTaskView)
-      || (['COMPLETED'].includes(t.status) && !taskEditMode && !completedTaskView)
-      || (stressEditOnly && detailStep !== 3);
+      || (['COMPLETED'].includes(t.status) && !taskEditMode && !completedTaskView && detailStep < 4)
+      || (stressEditOnly && detailStep !== 3 && detailStep !== 4 && detailStep !== 5);
     const stressEditHint = stressEditOnly && detailStep !== 3
       ? '<div class="alert alert-warning" style="margin-bottom:12px">已完成任务的其他步骤仅可查看，请在「场景压测」步骤调整情景与参数。</div>'
       : '';
@@ -1050,6 +1274,10 @@
       const avgDone = hasAvgCalculated(t.id);
       const fillDone = isAvgDataFilled(t.id);
 
+      const airportRecs = recs.filter(isAirportEnterprise);
+      const airportFetchedCount = airportRecs.filter((r) => r.throughputFetched).length;
+      const airportMissingCount = airportRecs.length - airportFetchedCount;
+      const showAirportCols = airportRecs.length > 0;
       const syncStatusFilter = syncListFilters[t.id] || '';
       const filteredRecs = taskViewMode ? recs : filterSyncRecords(recs, t.id);
       const statusFilterOpts = [
@@ -1063,21 +1291,29 @@
         <td>${esc(r.companyName)}</td><td>${esc(r.branchName)}</td>
         <td>${esc(r.customerId || '-')}</td><td>${esc(r.unifiedSocialCreditCode || '-')}</td>
         <td>${esc(r.branchCode || '-')}</td><td>${esc(r.apiIndustry)}</td><td>${esc(r.gbIndustryCode || '-')}</td><td>${esc(r.standardIndustry || '未映射')}</td>
-        <td>${esc(r.emissionFactorCode || '-')}</td><td>${syncStatusLabel(effectiveSyncStatus(r))}</td>
+        <td>${esc(r.emissionFactorCode || '-')}</td>
+        ${showAirportCols ? `<td>${isAirportEnterprise(r) ? '是' : '否'}</td><td>${isAirportEnterprise(r)
+          ? (r.throughputFetched ? Number(r.passengerThroughput).toLocaleString() : '<span class="tag tag-error">未调取</span>')
+          : '-'}</td>` : ''}
+        <td>${syncStatusLabel(effectiveSyncStatus(r))}</td>
         <td>${esc(r.availabilityReason)}</td><td>${esc(r.dataSource || '-')}</td>
         ${processing ? `<td>${r.revenue != null ? r.revenue.toLocaleString() : '-'}</td>` : ''}
         ${showSyncOpCol ? `<td>${r.dataAvailability === 'ABNORMAL'
           ? `<button class="btn btn-link" onclick="CRST_APP.excludeRecord(${t.id},${r.id})">删除</button>` : '-'}</td>` : ''}
       </tr>`;
-      const syncColspan = 12 + (processing ? 1 : 0) + (showSyncOpCol ? 1 : 0);
+      const syncColspan = 12 + (showAirportCols ? 2 : 0) + (processing ? 1 : 0) + (showSyncOpCol ? 1 : 0);
       const syncThead = `<tr>
-          <th>公司</th><th>分行</th><th>客户号</th><th>统一社会信用代码</th><th>分行代码</th><th>接口行业</th><th>国标代码</th><th>标准行业</th><th>排放因子编码</th><th>状态</th><th>原因</th><th>数据来源</th>
+          <th>公司</th><th>分行</th><th>客户号</th><th>统一社会信用代码</th><th>分行代码</th><th>接口行业</th><th>国标代码</th><th>标准行业</th><th>排放因子编码</th>
+          ${showAirportCols ? '<th>机场企业</th><th>旅客吞吐量(万人次)</th>' : ''}
+          <th>状态</th><th>原因</th><th>数据来源</th>
           ${processing ? '<th>收入(万)</th>' : ''}
           ${showSyncOpCol ? '<th>操作</th>' : ''}
         </tr>`;
       const syncTable = renderTable(filteredRecs, syncThead, recRowMapper, syncColspan);
       const totalCount = t.syncStats?.total ?? recs.length;
-      const syncSummaryText = `同步条数：${totalCount}条；可使用：${usable}条；需计算：${needAvg}条；无法处理：${abnormal}条`;
+      const airportSummary = airportRecs.length
+        ? `；机场企业 ${airportRecs.length} 条（吞吐量已调取 ${airportFetchedCount} 条）` : '';
+      const syncSummaryText = `同步条数：${totalCount}条；可使用：${usable}条；需计算：${needAvg}条；无法处理：${abnormal}条${airportSummary}`;
 
       let stepFooter = '';
       if (!taskViewMode && pendingConfirm) {
@@ -1087,9 +1323,11 @@
               <button type="button" class="btn btn-primary btn-next-step" onclick="CRST_APP.confirmList(${t.id})">下一步：确认清单</button>
             </div>`;
         } else if (abnormal > 0) {
+          const airportHint = airportMissingCount > 0
+            ? `（含 ${airportMissingCount} 条机场企业旅客吞吐量未调取，请先在「机场吞吐量维护」补录后重新同步）` : '';
           stepFooter = `
             <div class="step-footer step-footer-hint">
-              <span class="step-footer-msg">尚有 <strong>${abnormal}</strong> 条无法处理数据，请在列表中<strong>删除</strong>后再进入下一步</span>
+              <span class="step-footer-msg">尚有 <strong>${abnormal}</strong> 条无法处理数据${airportHint}，请在列表中<strong>删除</strong>或补全数据后再进入下一步</span>
             </div>`;
         }
       } else if (!taskViewMode && processing) {
@@ -1131,7 +1369,11 @@
         ${!processing && !taskViewMode ? `
         <div class="toolbar step-toolbar-top">
           <button type="button" class="btn btn-primary" ${syncDisabled ? 'disabled' : ''} onclick="CRST_APP.syncFinancial(${t.id})">同步财务数据</button>
-        </div>` : (processing ? `
+          ${recs.length && airportRecs.length && !syncDisabled
+            ? `<button type="button" class="btn btn-default" onclick="CRST_APP.syncAirportThroughput(${t.id})">同步旅客吞吐量</button>`
+            : ''}
+        </div>
+        ${airportRecs.length ? `<div class="alert alert-info">清单中含机场企业 ${airportRecs.length} 条，除财务数据外还需从「机场吞吐量维护」调取旅客吞吐量；未维护的企业将无法确认清单。</div>` : ''}` : (processing ? `
         <div class="alert alert-info">清单已确认。${needAvgCount ? '请基于下列已同步财务数据计算行业均值并填充后，进入场景压测。' : '无需行业均值补算，可直接进入场景压测。'}</div>` : '')}
         <h4 class="step-subtitle">${processing ? '已确认企业财务数据' : '同步企业清单'}</h4>
         ${taskViewMode ? '' : `<div class="sync-list-filter">
@@ -1217,7 +1459,7 @@
         ${renderTable(ecls, '<tr><th>公司</th><th>客户号</th><th>借据号</th><th>PD</th><th>LGD</th><th>EAD</th><th>减值阶段</th><th>ECL金额</th><th>模型版本</th><th>计量日期</th></tr>', eclRow, 10)}
         </div>` : ''}
         <h3 class="step-panel-title step-panel-title-divider">场景压测</h3>
-        <div class="alert alert-info">压测按<strong>行内方法</strong>：碳排放量=收入×行业因子；碳排放费用=排放量×(1-免费配额)×碳价；高碳行业营业支出含碳费。测试年默认2040，情景含现有政策/温室世界/有序转型。</div>
+        <div class="alert alert-info">压测按<strong>行内方法</strong>执行；完成后在<strong>压测结果</strong>查看排放、财务与信用计量结果，并在<strong>应用报送</strong>输出内外部报表。</div>
         <div class="checkbox-group scenario-checkbox-group">${checks || '<span class="scenario-check-empty">无已生效场景，请先在场景计算方法配置中发布。</span>'}</div>
         ${scenarioCardHtml || '<p class="flow-hint">请先勾选至少一个压测场景，随后录入该场景参数。</p>'}
         ${stressEditable ? '<p class="flow-hint">勾选的场景会显示对应参数卡片；取消勾选后卡片自动隐藏。不同场景需补录字段不同。</p>' : ''}
@@ -1234,64 +1476,51 @@
       const industryOpts = [...new Set(results.map((r) => r.standardIndustry).filter(Boolean))].sort();
       const branchOpts = [...new Set(results.map((r) => r.branchName).filter(Boolean))].sort();
       const filtered = applyTaskResultFilter(results, filter);
-      const summaryRows = summarizeTaskResults(filtered, filter.summaryDim || 'industry');
-      const resultThead = '<tr><th>公司</th><th>分行</th><th>行业</th><th>情景</th><th>年份</th>'
-        + '<th>收入增长率</th><th>成本收入比</th><th>资产负债率</th>'
-        + '<th>政策强度</th><th>物理损失率</th><th>绿色投资占比</th>'
-        + '<th>免费配额比例</th><th>碳价(元/吨)</th><th>碳排放量(吨)</th><th>碳排放费用(万)</th>'
-        + '<th>收入(前)</th><th>收入(后)</th><th>ECL(前)</th><th>ECL(后)</th><th>影响率</th><th>违约</th></tr>';
-      const resultRow = (r) => `<tr>
-        <td>${esc(r.companyName)}</td><td>${esc(r.branchName)}</td><td>${esc(r.standardIndustry)}</td>
-        <td>${esc(r.scenarioName)}</td><td>${esc(r.testYear || '-')}</td>
-        <td>${r.revenueGrowth != null ? (r.revenueGrowth * 100).toFixed(2) + '%' : '-'}</td>
-        <td>${r.costIncomeRatio != null ? (r.costIncomeRatio * 100).toFixed(2) + '%' : '-'}</td>
-        <td>${r.assetLiabilityRatio != null ? (r.assetLiabilityRatio * 100).toFixed(2) + '%' : '-'}</td>
-        <td>${r.policyIntensity != null ? r.policyIntensity.toFixed(2) : '-'}</td>
-        <td>${r.physicalLossRatio != null ? (r.physicalLossRatio * 100).toFixed(2) + '%' : '-'}</td>
-        <td>${r.greenInvestmentRatio != null ? (r.greenInvestmentRatio * 100).toFixed(2) + '%' : '-'}</td>
-        <td>${r.freeQuotaRatio != null ? (r.freeQuotaRatio * 100).toFixed(2) + '%' : '-'}</td>
-        <td>${r.carbonPrice != null ? r.carbonPrice.toLocaleString() : '-'}</td>
-        <td>${r.carbonEmission != null ? r.carbonEmission.toLocaleString() : '-'}</td>
-        <td>${r.carbonCost != null ? r.carbonCost.toLocaleString() : '-'}</td>
-        <td>${r.revenueBefore?.toLocaleString()}</td><td>${r.revenueAfter?.toLocaleString()}</td>
-        <td>${r.eclBefore?.toLocaleString()}</td><td>${r.eclAfter?.toLocaleString()}</td>
-        <td>${(r.impactRate * 100).toFixed(2)}%</td>
-        <td>${r.defaultFlag ? '<span class="tag tag-error">违约</span>' : '<span class="tag tag-success">正常</span>'}</td></tr>`;
+      const exportDisabled = t.status !== 'COMPLETED' && t.status !== 'ARCHIVED';
+      const filterBar = resultTools ? renderTaskResultFilterBar(t, filter, scenarioOpts, yearOpts, industryOpts, branchOpts) : '';
+      const emptyHint = !results.length
+        ? '<div class="empty" style="padding:24px 0">暂无压测结果，请先在「场景压测」步骤执行压测。</div>'
+        : '';
       const summaryDimCol = filter.summaryDim === 'branch' ? '分行' : '行业';
+      const summaryRows = summarizeTaskResults(filtered, filter.summaryDim || 'industry');
       const summaryTable = renderTable(summaryRows,
         `<tr><th>${summaryDimCol}</th><th>样本数</th><th>平均影响率</th><th>碳费用合计(万)</th><th>ECL增量合计(万)</th><th>违约数</th></tr>`,
         (s) => `<tr><td>${esc(s.key)}</td><td>${s.count}</td><td>${s.avgImpactPct.toFixed(2)}%</td><td>${s.sumCarbonCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}</td><td>${s.sumEclDelta.toLocaleString(undefined, { maximumFractionDigits: 2 })}</td><td>${s.defaultCount}</td></tr>`,
         6
       );
-      const exportDisabled = t.status !== 'COMPLETED' && t.status !== 'ARCHIVED';
+      const portfolioRows = summarizePortfolioCredit(filtered, t.id);
+      const portfolioTable = renderTable(portfolioRows,
+        '<tr><th>维度</th><th>样本数</th><th>碳费用合计(万)</th><th>ECL增量(万)</th><th>资本充足率</th><th>违约数</th></tr>',
+        (p) => {
+          const carbonSum = filtered.filter((r) => (p.dim === '总行' ? true : r.branchName === p.dim))
+            .reduce((s, r) => s + (r.carbonCost || 0), 0);
+          return `<tr><td>${esc(p.dim)}</td><td>${p.count}</td><td>${carbonSum.toLocaleString(undefined, { maximumFractionDigits: 2 })}</td><td>${p.eclDelta.toLocaleString()}</td><td>${p.car}</td><td>${p.defaultCount}</td></tr>`;
+        },
+        6
+      );
+      const resultRow = (r) => {
+        const fin = calcResultFinancials(r);
+        return `<tr>
+          <td>${esc(r.companyName)}</td><td>${esc(r.branchName)}</td><td>${esc(r.standardIndustry)}</td>
+          <td>${esc(r.scenarioName)}</td><td>${esc(r.testYear || '-')}</td>
+          <td>${esc(emissionCalcBasisLabel(r, t.id))}</td>
+          <td>${r.carbonEmission != null ? r.carbonEmission.toLocaleString() : '-'}</td>
+          <td>${r.carbonCost != null ? r.carbonCost.toLocaleString() : '-'}</td>
+          <td>${fin.revenue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
+          <td>${fin.netProfit.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
+          <td>${r.eclBefore?.toLocaleString()}</td><td>${r.eclAfter?.toLocaleString()}</td>
+          <td>${(r.impactRate * 100).toFixed(2)}%</td>
+          <td>${r.defaultFlag ? '<span class="tag tag-error">违约</span>' : '<span class="tag tag-success">正常</span>'}</td></tr>`;
+      };
       panel = `
         ${stressEditHint}
         <h3 class="step-panel-title">压测结果</h3>
-        ${resultTools ? `<div class="filter-bar">
-          <input class="input" style="min-width:180px" placeholder="公司/分行/行业关键词" value="${esc(filter.keyword)}" oninput="CRST_APP.setTaskResultFilter(${t.id}, 'keyword', this.value)" />
-          <select class="select" onchange="CRST_APP.setTaskResultFilter(${t.id}, 'scenarioCode', this.value)">
-            <option value="">全部情景</option>
-            ${scenarioOpts.map((s) => `<option value="${esc(s.code)}" ${filter.scenarioCode === s.code ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}
-          </select>
-          <select class="select" onchange="CRST_APP.setTaskResultFilter(${t.id}, 'year', this.value)">
-            <option value="">全部年份</option>
-            ${yearOpts.map((y) => `<option value="${y}" ${String(filter.year) === String(y) ? 'selected' : ''}>${y}年</option>`).join('')}
-          </select>
-          <select class="select" onchange="CRST_APP.setTaskResultFilter(${t.id}, 'industry', this.value)">
-            <option value="">全部行业</option>
-            ${industryOpts.map((v) => `<option value="${esc(v)}" ${filter.industry === v ? 'selected' : ''}>${esc(v)}</option>`).join('')}
-          </select>
-          <select class="select" onchange="CRST_APP.setTaskResultFilter(${t.id}, 'branch', this.value)">
-            <option value="">全部分行</option>
-            ${branchOpts.map((v) => `<option value="${esc(v)}" ${filter.branch === v ? 'selected' : ''}>${esc(v)}</option>`).join('')}
-          </select>
-          <select class="select" onchange="CRST_APP.setTaskResultFilter(${t.id}, 'defaultOnly', this.value)">
-            <option value="" ${filter.defaultOnly !== 'Y' ? 'selected' : ''}>全部样本</option>
-            <option value="Y" ${filter.defaultOnly === 'Y' ? 'selected' : ''}>仅违约样本</option>
-          </select>
-          <button class="btn btn-default" onclick="CRST_APP.resetTaskResultFilter(${t.id})">重置筛选</button>
-        </div>` : ''}
-
+        ${filterBar}
+        ${emptyHint || `
+        <section class="result-section">
+          <div class="result-section-hd"><h4 class="result-section-title">组合指标</h4></div>
+          ${portfolioTable}
+        </section>
         <section class="result-section">
           <div class="result-section-hd">
             <h4 class="result-section-title">汇总结果</h4>
@@ -1300,21 +1529,80 @@
                 <option value="industry" ${filter.summaryDim !== 'branch' ? 'selected' : ''}>按行业汇总</option>
                 <option value="branch" ${filter.summaryDim === 'branch' ? 'selected' : ''}>按分行汇总</option>
               </select>
-              <button class="btn btn-default" ${exportDisabled ? 'disabled' : ''} onclick="CRST_APP.exportResultsSummary(${t.id})">导出汇总结果</button>
+              <button class="btn btn-default" ${exportDisabled ? 'disabled' : ''} onclick="CRST_APP.exportResultsSummary(${t.id})">导出汇总</button>
             </div>` : ''}
           </div>
           ${summaryTable}
         </section>
-
         <section class="result-section">
           <div class="result-section-hd">
-            <h4 class="result-section-title">明细结果</h4>
+            <h4 class="result-section-title">压测明细</h4>
             ${resultTools ? `<div class="result-section-actions">
               <button class="btn btn-primary" ${exportDisabled ? 'disabled' : ''} onclick="CRST_APP.openExportDetailModal(${t.id})">导出明细</button>
             </div>` : ''}
           </div>
-          ${renderPagedTable(`task-${t.id}-result`, filtered, resultThead, resultRow, 21)}
-        </section>`;
+          ${renderPagedTable(`task-${t.id}-result`, filtered,
+            '<tr><th>公司</th><th>分行</th><th>行业</th><th>情景</th><th>年份</th><th>测算口径</th><th>碳排放量(吨)</th><th>碳费用(万)</th><th>营业收入(万)</th><th>净利润(万)</th><th>ECL(前)</th><th>ECL(后)</th><th>影响率</th><th>违约</th></tr>',
+            resultRow, 14)}
+        </section>
+        ${canUseApplicationReport(t) && !stressEditOnly ? `
+        <div class="step-footer">
+          <button type="button" class="btn btn-primary btn-next-step" onclick="CRST_APP.goToApplicationReport(${t.id})">下一步：应用报送</button>
+        </div>` : ''}`}`;
+    } else if (detailStep === 5) {
+      const reportDisabled = !canUseApplicationReport(t);
+      const warnings = getRiskWarningRows(t.id);
+      const portfolioRows = summarizePortfolioCredit(
+        applyTaskResultFilter(results, getTaskResultFilter(t.id)),
+        t.id
+      );
+      const warnedAt = t.riskWarningIssuedAt;
+      const regulatoryAt = t.regulatoryReportGeneratedAt;
+      const warningRow = (r) => `<tr>
+        <td>${esc(r.companyName)}</td><td>${esc(r.branchName)}</td><td>${esc(r.standardIndustry)}</td>
+        <td>${esc(r.scenarioName)}</td><td>${esc(r.testYear || '-')}</td>
+        <td>${((r.impactRate || 0) * 100).toFixed(2)}%</td>
+        <td>${esc(riskHintText(r))}</td>
+        <td>${warnedAt ? '<span class="tag tag-success">已下发</span>' : '<span class="tag tag-warning">待下发</span>'}</td>
+      </tr>`;
+      const portfolioBrowse = renderTable(portfolioRows.slice(0, 4),
+        '<tr><th>维度</th><th>ECL增量(万)</th><th>违约数</th><th>资本充足率</th></tr>',
+        (p) => `<tr><td>${esc(p.dim)}</td><td>${p.eclDelta.toLocaleString()}</td><td>${p.defaultCount}</td><td>${p.car}</td></tr>`,
+        4
+      );
+      panel = `
+        ${stressEditHint}
+        <h3 class="step-panel-title">应用报送</h3>
+        ${!results.length ? '<div class="empty" style="padding:24px 0">暂无压测结果，请先在「场景压测」步骤执行压测。</div>' : `
+        <div class="application-report-grid">
+          <div class="application-card application-card--internal">
+            <h4 class="application-card-title">内部管理应用</h4>
+            <div class="toolbar application-card-actions">
+              <button type="button" class="btn btn-primary" ${reportDisabled ? 'disabled' : ''} onclick="CRST_APP.issueRiskWarnings(${t.id})">下发风险预警</button>
+            </div>
+            ${warnedAt ? `<p class="flow-hint">最近下发：${esc(warnedAt)}，共 ${warnings.length} 户</p>` : ''}
+            <h5 class="application-subtitle">风险预警清单（${warnings.length} 户）</h5>
+            ${warnings.length
+              ? renderTable(warnings,
+                '<tr><th>公司</th><th>分行</th><th>行业</th><th>情景</th><th>年份</th><th>影响率</th><th>风险提示</th><th>状态</th></tr>',
+                warningRow, 8)
+              : '<p class="flow-hint">当前筛选下暂无触发违约/预警阈值的企业。</p>'}
+            <h5 class="application-subtitle">总行维度结果浏览</h5>
+            ${portfolioBrowse}
+          </div>
+          <div class="application-card application-card--regulatory">
+            <h4 class="application-card-title">外部监管报送</h4>
+            <div class="toolbar application-card-actions">
+              <button type="button" class="btn btn-primary" ${reportDisabled ? 'disabled' : ''} onclick="CRST_APP.generateRegulatoryReport(${t.id})">生成监管报送 Excel</button>
+            </div>
+            ${regulatoryAt ? `<p class="flow-hint">最近生成：${esc(regulatoryAt)}</p>` : ''}
+            <h5 class="application-subtitle">报送文件包</h5>
+            <ul class="application-file-list">
+              ${REGULATORY_REPORT_FILES.map((f) => `<li><strong>${esc(f.name)}</strong><span>${esc(f.desc)}</span></li>`).join('')}
+            </ul>
+            <p class="flow-hint">生成后将写入「导出记录」，支持按任务名称与时间戳下载追溯。</p>
+          </div>
+        </div>`}`;
     }
 
     const logBtn = !taskDraftMode && (!taskViewMode || completedTaskView)
@@ -1788,16 +2076,82 @@
       </div>`;
   }
 
+  function airportThroughputActions(r) {
+    const btns = [`<button class="btn btn-link" onclick="CRST_APP.editAirportThroughput(${r.id})">编辑</button>`];
+    btns.push(`<button class="btn btn-link" onclick="CRST_APP.deleteAirportThroughput(${r.id})">删除</button>`);
+    return btns.join('');
+  }
+
+  function renderAirportThroughput() {
+    const editing = airportThroughputRows.find((r) => r.id === airportThroughputEditId);
+    const table = renderPagedTable('airport-throughput', airportThroughputRows,
+      '<tr><th>机场企业</th><th>机场代码</th><th>年份</th><th>旅客吞吐量(万人次)</th><th>货邮吞吐量(万吨)</th><th>数据来源</th><th>状态</th><th>更新时间</th><th>操作</th></tr>',
+      (r) => `<tr>
+        <td>${esc(r.airportName)}</td><td>${esc(r.airportCode)}</td><td>${esc(r.year)}</td>
+        <td>${Number(r.passengerThroughput).toLocaleString()}</td><td>${Number(r.cargoThroughput).toLocaleString()}</td>
+        <td>${esc(r.source)}</td><td>${tag(r.status, CONFIG_STATUS)}</td><td>${esc(r.updatedAt)}</td>
+        <td><div class="action-group">${airportThroughputActions(r)}</div></td>
+      </tr>`, 9);
+    return `
+      <div class="card">
+        <div class="toolbar">
+          <h2 class="page-title">机场吞吐量维护</h2>
+          <button class="btn btn-default" onclick="CRST_APP.resetAirportThroughputForm()">新增记录</button>
+        </div>
+        <div class="alert alert-info">机场企业压测时按旅客吞吐量计算碳排放量；压测任务将直接调用本表数据。</div>
+        <div class="form-grid-2">
+          <div class="form-row"><label><span class="req">*</span>机场企业</label><input class="input" id="ap_name" value="${esc(editing?.airportName || '')}" placeholder="如 华南机场运营有限公司" /></div>
+          <div class="form-row"><label><span class="req">*</span>机场代码</label><input class="input" id="ap_code" value="${esc(editing?.airportCode || '')}" placeholder="如 CAN" /></div>
+          <div class="form-row"><label><span class="req">*</span>年份</label><input class="input" id="ap_year" type="number" value="${esc(editing?.year || 2024)}" /></div>
+          <div class="form-row"><label><span class="req">*</span>旅客吞吐量（万人次）</label><input class="input" id="ap_passenger" type="number" step="0.01" value="${esc(editing?.passengerThroughput ?? '')}" /></div>
+          <div class="form-row"><label>货邮吞吐量（万吨）</label><input class="input" id="ap_cargo" type="number" step="0.01" value="${esc(editing?.cargoThroughput ?? '')}" /></div>
+          <div class="form-row"><label>数据来源</label><input class="input" id="ap_source" value="${esc(editing?.source || '机场运营数据接口')}" /></div>
+        </div>
+        <div class="toolbar step-panel-actions">
+          <button class="btn btn-primary" onclick="CRST_APP.saveAirportThroughput()">${editing ? '保存修改' : '保存记录'}</button>
+          ${editing ? '<button class="btn btn-default" onclick="CRST_APP.resetAirportThroughputForm()">取消编辑</button>' : ''}
+        </div>
+        ${table}
+      </div>`;
+  }
+
   /* —— 导出记录 —— */
+  function filterExportList() {
+    const kw = exportFilters.taskName.trim();
+    return exportLogs.filter((e) => {
+      if (kw && !e.taskName.includes(kw)) return false;
+      if (exportFilters.scope && e.scope !== exportFilters.scope) return false;
+      return true;
+    });
+  }
+
+  function searchExports() {
+    exportFilters.taskName = document.getElementById('ef_task')?.value?.trim() || '';
+    exportFilters.scope = document.getElementById('ef_scope')?.value || '';
+    getListPager('exports').page = 1;
+    render();
+  }
+
+  function resetExportFilters() {
+    exportFilters = { taskName: '', scope: '' };
+    getListPager('exports').page = 1;
+    render();
+  }
+
   function renderExports() {
-    const table = renderPagedTable('exports', exportLogs,
+    const filtered = filterExportList();
+    const scopeOpts = [...new Set(exportLogs.map((e) => e.scope))].sort();
+    const table = renderPagedTable('exports', filtered,
       '<tr><th>任务名称</th><th>下载内容</th><th>范围</th><th>筛选条件</th><th>字段</th><th>导出人</th><th>时间</th><th>操作</th></tr>',
       (e) => {
         const fileName = getExportDownloadFileName(e);
+        const filterText = e.filter || '-';
         return `<tr>
       <td>${esc(e.taskName)}</td>
       <td class="export-download-cell"><span class="export-download-name" data-tip="${esc(fileName)}" title="${esc(fileName)}">${esc(fileName)}</span></td>
-      <td>${esc(e.scope)}</td><td title="${esc(e.filter || '-')}" >${esc((e.filter || '-').slice(0, 24))}${(e.filter || '').length > 24 ? '…' : ''}</td><td title="${esc(e.fields)}">${esc(String(e.fields).slice(0, 20))}${String(e.fields).length > 20 ? '…' : ''}</td>
+      <td>${esc(e.scope)}</td>
+      <td class="export-filter-cell" title="${esc(filterText)}">${esc(filterText)}</td>
+      <td title="${esc(e.fields)}">${esc(String(e.fields).slice(0, 20))}${String(e.fields).length > 20 ? '…' : ''}</td>
       <td>${esc(e.operator)}</td><td>${e.exportedAt}</td>
       <td><button class="btn btn-link" onclick="CRST_APP.downloadExport(${e.id})">下载</button></td>
     </tr>`;
@@ -1805,6 +2159,23 @@
     return `
       <div class="card">
         <h2 class="page-title">导出记录</h2>
+        <div class="task-filter-bar export-filter-bar">
+          <div class="filter-item">
+            <label>任务名称</label>
+            <input class="input" id="ef_task" placeholder="模糊搜索" value="${esc(exportFilters.taskName)}" onkeydown="if(event.key==='Enter')CRST_APP.searchExports()" />
+          </div>
+          <div class="filter-item">
+            <label>范围</label>
+            <select class="select" id="ef_scope">
+              <option value="">全部</option>
+              ${scopeOpts.map((s) => `<option value="${esc(s)}" ${exportFilters.scope === s ? 'selected' : ''}>${esc(s)}</option>`).join('')}
+            </select>
+          </div>
+          <div class="filter-item filter-actions">
+            <button class="btn btn-primary" onclick="CRST_APP.searchExports()">查询</button>
+            <button class="btn btn-default" onclick="CRST_APP.resetExportFilters()">重置</button>
+          </div>
+        </div>
         ${table}
       </div>`;
   }
@@ -1818,6 +2189,7 @@
       factors: renderFactors,
       scenarios: renderScenarios,
       mappings: renderMappings,
+      'airport-throughput': renderAirportThroughput,
       exports: renderExports,
       'calc-doc': renderCalcDoc,
       'menu-perms': renderMenuPermissions,
@@ -1830,6 +2202,7 @@
       factors: '因子库管理',
       scenarios: '场景计算方法配置',
       mappings: '行业映射关系',
+      'airport-throughput': '机场吞吐量维护',
       exports: '导出记录',
       'calc-doc': '计算方法说明',
       'menu-perms': '菜单权限',
@@ -1913,6 +2286,56 @@
     return '<div class="card empty">计算方法文档未加载</div>';
   }
 
+  function resetAirportThroughputForm() {
+    airportThroughputEditId = null;
+    render();
+  }
+
+  function editAirportThroughput(id) {
+    airportThroughputEditId = id;
+    render();
+  }
+
+  function saveAirportThroughput() {
+    const airportName = document.getElementById('ap_name').value.trim();
+    const airportCode = document.getElementById('ap_code').value.trim().toUpperCase();
+    const year = parseInt(document.getElementById('ap_year').value, 10);
+    const passengerThroughput = parseFloat(document.getElementById('ap_passenger').value);
+    const cargoThroughput = parseFloat(document.getElementById('ap_cargo').value) || 0;
+    const source = document.getElementById('ap_source').value.trim() || '手工维护';
+    if (!airportName || !airportCode || !year || !Number.isFinite(passengerThroughput)) {
+      toast('请填写机场企业、机场代码、年份和旅客吞吐量', 'error');
+      return;
+    }
+    const payload = {
+      airportName,
+      airportCode,
+      year,
+      passengerThroughput,
+      cargoThroughput,
+      source,
+      status: 'ENABLED',
+      updatedAt: new Date().toISOString().slice(0, 10),
+    };
+    if (airportThroughputEditId) {
+      Object.assign(airportThroughputRows.find((r) => r.id === airportThroughputEditId), payload);
+      toast('机场吞吐量已更新');
+    } else {
+      airportThroughputRows.unshift({ id: ++nextAirportThroughputId, ...payload });
+      toast('机场吞吐量已新增');
+    }
+    airportThroughputEditId = null;
+    render();
+  }
+
+  function deleteAirportThroughput(id) {
+    if (!confirm('确认删除该机场吞吐量记录？')) return;
+    airportThroughputRows.splice(airportThroughputRows.findIndex((r) => r.id === id), 1);
+    if (airportThroughputEditId === id) airportThroughputEditId = null;
+    toast('已删除');
+    render();
+  }
+
   /* —— 任务 CRUD & 状态机 —— */
   function startCreateTask() {
     taskDraftMode = true;
@@ -1975,7 +2398,7 @@
         createdAt: nowStr(),
         updatedAt: nowStr(),
       });
-      addLog(createdId, '创建任务');
+      addLog(createdId, '创建任务：保存任务');
       taskDraftMode = false;
       detailStep = 1;
       toast('任务已创建，请进行数据同步与确认');
@@ -1997,7 +2420,7 @@
       t.description = desc;
       t.factorVersion = factorVersion;
       t.updatedAt = nowStr();
-      addLog(t.id, '编辑任务');
+      addLog(t.id, '创建任务：编辑任务基本信息');
       taskEditMode = false;
       taskViewMode = false;
       const targetStep = editTaskEntryStep(t);
@@ -2038,7 +2461,7 @@
     if (t.status !== 'DRAFT') return;
     t.status = 'SYNCING';
     t.updatedAt = nowStr();
-    addLog(id, '开始同步财务数据');
+    addLog(id, '数据同步与确认：开始同步财务数据');
     render();
     setTimeout(() => {
       t.status = 'PENDING_CONFIRM';
@@ -2047,14 +2470,40 @@
       t.scenarioVersion = 'S-' + getPublishedScenarioVersion();
       recordsByTask[id] = mockSyncRecords(id, t);
       const recs = recordsByTask[id];
-      t.syncStats = { total: recs.length, success: recs.filter((r) => r.dataAvailability !== 'ABNORMAL').length, fail: recs.filter((r) => r.dataAvailability === 'ABNORMAL').length };
+      const airportStats = fetchAirportThroughputForTask(id);
+      refreshSyncStats(id);
       t.updatedAt = nowStr();
-      addLog(id, '同步完成，待管理员确认');
-      toast('财务数据同步完成');
+      addLog(id, '数据同步与确认：财务数据同步完成，待确认清单');
+      if (airportStats.total) {
+        addLog(id, `数据同步与确认：机场企业旅客吞吐量调取成功 ${airportStats.success} 条，待维护 ${airportStats.fail} 条`);
+      }
+      toast(airportStats.fail
+        ? `财务数据同步完成；${airportStats.fail} 条机场企业旅客吞吐量待维护`
+        : '财务数据同步完成');
       render();
       if (currentPage === 'task-detail' && currentTaskId === id) detailStep = 1;
       render();
     }, 800);
+  }
+
+  function syncAirportThroughput(id) {
+    const t = getTask(id);
+    if (!['SYNCING', 'PENDING_CONFIRM', 'PROCESSING'].includes(t.status)) {
+      toast('请先同步财务数据', 'error');
+      return;
+    }
+    const stats = fetchAirportThroughputForTask(id);
+    if (!stats.total) {
+      toast('当前清单无机场企业', 'info');
+      return;
+    }
+    refreshSyncStats(id);
+    t.updatedAt = nowStr();
+    addLog(id, `数据同步与确认：调取旅客吞吐量，成功 ${stats.success} 条，待维护 ${stats.fail} 条`);
+    toast(stats.fail
+      ? `旅客吞吐量调取完成，${stats.fail} 条未在维护表中找到`
+      : '旅客吞吐量已全部调取');
+    render();
   }
 
   function mockSyncRecords(taskId, t) {
@@ -2062,6 +2511,7 @@
       { companyName: '华东化工有限公司', customerId: 'CUST-1001', unifiedSocialCreditCode: '91310000100000001X', branchName: '上海分行', branchCode: '3100', apiIndustry: 'C2614 有机化学原料制造', gbIndustryCode: 'C2614', emissionFactorCode: 'EMISSION_C2614', standardIndustry: '化工', revenue: 120000, costIncomeRatio: 0.88 },
       { companyName: '北方钢铁集团', customerId: 'CUST-1002', unifiedSocialCreditCode: '91110000100000002Y', branchName: '北京分行', branchCode: '1100', apiIndustry: 'C3110 炼铁', gbIndustryCode: 'C3110', emissionFactorCode: 'EMISSION_STEEL', standardIndustry: '钢铁', revenue: 98000, costIncomeRatio: 0.9 },
       { companyName: '华南电力股份', customerId: 'CUST-1003', unifiedSocialCreditCode: '91440000100000003Z', branchName: '广州分行', branchCode: '4400', apiIndustry: 'D4411 火力发电', gbIndustryCode: 'D4411', emissionFactorCode: 'EMISSION_D4411', standardIndustry: '电力', revenue: 150000, costIncomeRatio: 0.82 },
+      { companyName: '华南机场运营有限公司', customerId: 'CUST-1005', unifiedSocialCreditCode: '91440000100000005A', branchName: '广州分行', branchCode: '4400', apiIndustry: 'G5631 机场', gbIndustryCode: 'G5631', emissionFactorCode: 'EMISSION_G5631', standardIndustry: '机场企业', revenue: 88000, costIncomeRatio: 0.78 },
       { companyName: '未知行业企业', customerId: 'CUST-1004', unifiedSocialCreditCode: '91440300100000004K', branchName: '深圳分行', branchCode: '4403', apiIndustry: '其他行业' },
     ];
     return templates.map((tpl, i) => {
@@ -2093,7 +2543,7 @@
     t.status = 'PROCESSING';
     t.adminConfirmedAt = nowStr();
     t.updatedAt = nowStr();
-    addLog(id, '确认数据清单');
+    addLog(id, '数据同步与确认：确认数据清单');
     const needN = countNeedAvg(recs);
     toast(needN ? '清单已确认，请计算行业平均值' : '清单已确认，可直接进入场景压测');
     detailStep = 1;
@@ -2105,7 +2555,7 @@
     const i = recs.findIndex((r) => r.id === recId);
     const companyName = i >= 0 ? recs[i].companyName : '';
     if (i >= 0) recs.splice(i, 1);
-    addLog(taskId, `删除同步企业：${companyName || recId}`);
+    addLog(taskId, `数据同步与确认：删除同步企业「${companyName || recId}」`);
     const t = getTask(taskId);
     if (t?.syncStats) {
       t.syncStats.total = recs.length;
@@ -2142,7 +2592,7 @@
       };
     });
     t.updatedAt = nowStr();
-    addLog(id, '基于已确认同步数据计算行业平均值');
+    addLog(id, '数据同步与确认：计算行业平均值');
     toast('行业平均值已计算，请填充至样本');
     render();
   }
@@ -2165,7 +2615,7 @@
     });
     (avgByTask[id] || []).forEach((a) => { a.status = 'CONFIRMED'; });
     t.updatedAt = nowStr();
-    addLog(id, `行业均值已填充至 ${n} 条样本`);
+    addLog(id, `数据同步与确认：行业均值已填充至 ${n} 条样本`);
     toast('数据填充完成，可进入场景压测');
     render();
   }
@@ -2182,7 +2632,7 @@
     t.status = 'READY_STRESS';
     t.avgConfirmedAt = nowStr();
     t.updatedAt = nowStr();
-    addLog(id, '确认数据处理结果，进入场景压测');
+    addLog(id, '数据处理：确认处理结果，进入场景压测');
     toast('已进入场景压测');
     detailStep = 3;
     navigate('task-detail', id, 3);
@@ -2209,7 +2659,7 @@
     }));
     t.creditFetched = true;
     t.updatedAt = nowStr();
-    addLog(id, '调取信贷系统数据');
+    addLog(id, '场景压测：调取信贷系统数据');
     toast('信贷数据已获取');
     render();
   }
@@ -2230,7 +2680,7 @@
     }));
     t.eclFetched = true;
     t.updatedAt = nowStr();
-    addLog(id, '调取ECL系统数据');
+    addLog(id, '场景压测：调取 ECL 系统数据');
     toast('ECL数据已获取');
     render();
   }
@@ -2271,7 +2721,7 @@
     const maxEnd = Math.max(...Object.values(scenarioParamsMap).map((p) => p.endYear));
 
     t.status = 'STRESSING';
-    addLog(id, `开始执行场景压测（${scenarioCodes.length}个情景，${minStart}-${maxEnd}年）`);
+    addLog(id, `场景压测：开始执行（${scenarioCodes.length}个情景，${minStart}-${maxEnd}年）`);
     render();
     setTimeout(() => {
       const recs = recordsByTask[id] || [];
@@ -2332,10 +2782,10 @@
       t.scenarioVersion = getPublishedScenarioVersion();
       t.status = 'COMPLETED';
       t.updatedAt = nowStr();
-      addLog(id, `压测完成（${minStart}-${maxEnd}逐年预测，${scenarioCodes.length}个情景）`);
+      addLog(id, `压测结果：场景压测完成，已生成压测结果（${minStart}-${maxEnd}年，${scenarioCodes.length}个情景）`);
       if (taskEditMode && isStressOnlyEditTask(t)) {
         taskEditMode = false;
-        addLog(id, '已完成任务场景参数调整后重新压测');
+        addLog(id, '场景压测：已完成任务参数调整后重新压测');
       }
       toast('压测已完成（已输出逐年结果）');
       navigate('task-detail', id, 4);
@@ -2560,19 +3010,49 @@
     render();
   }
 
+  function issueRiskWarnings(taskId) {
+    const t = getTask(taskId);
+    if (!canExportTaskResults(t)) { toast('请先完成压测', 'error'); return; }
+    const warnings = getRiskWarningRows(taskId);
+    if (!warnings.length) { toast('当前无触发违约/预警阈值的企业', 'info'); return; }
+    t.riskWarningIssuedAt = nowStr();
+    t.updatedAt = nowStr();
+    addLog(taskId, `应用报送：向 ${warnings.length} 户企业所在分行下发风险预警`);
+    toast(`已向 ${warnings.length} 户企业所在分行下发风险预警`);
+    render();
+  }
+
+  function generateRegulatoryReport(taskId) {
+    const t = getTask(taskId);
+    if (!canExportTaskResults(t)) { toast('请先完成压测', 'error'); return; }
+    const scope = '外部监管报送-人民银行模板';
+    const fields = REGULATORY_REPORT_FILES.map((f) => f.name).join(', ');
+    const filterDesc = `监管口径：${t.scenarioVersion || '-'}；情景：${(t.selectedScenarioCodes || []).join('、') || '全部已选情景'}`;
+    const { downloadFileName, taskName } = appendExportLog({ taskId, scope, fields, filterDesc });
+    t.regulatoryReportGeneratedAt = nowStr();
+    t.updatedAt = nowStr();
+    addLog(taskId, '应用报送：生成监管报送 Excel 文件包');
+    triggerExportFileDownload(
+      downloadFileName,
+      `监管报送\n任务：${taskName}\n${filterDesc}\n文件：${fields}\n说明：符合人民银行气候风险宏观情景压力测试报送要求，支持指标与明细追溯`
+    );
+    toast('监管报送 Excel 已生成，已写入导出记录');
+    render();
+  }
+
   /* —— 导出 —— */
   function exportResultsSummary(taskId) {
     const t = getTask(taskId);
     if (!canExportTaskResults(t)) { toast('请先完成压测后再导出', 'error'); return; }
     const summaryDimLabel = getTaskResultFilter(taskId).summaryDim === 'branch' ? '分行' : '行业';
     const fields = getSummaryExportFieldLabels(taskId).join(',');
-    const filterDesc = `筛选条件：${buildTaskResultFilterDesc(taskId)}`;
+    const filterDesc = buildTaskResultFilterDesc(taskId);
     const scope = `汇总结果（按${summaryDimLabel}，含完整字段）`;
     const { downloadFileName, taskName } = appendExportLog({ taskId, scope, fields, filterDesc });
-    addLog(taskId, `导出汇总结果（${scope}，${filterDesc}）`);
+    addLog(taskId, `压测结果：导出汇总结果（${scope}，筛选条件：${filterDesc}）`);
     triggerExportFileDownload(
       downloadFileName,
-      `汇总导出\n任务：${taskName}\n范围：${scope}\n字段：${fields}\n${filterDesc}\n汇总维度：${summaryDimLabel}`
+      `汇总导出\n任务：${taskName}\n范围：${scope}\n字段：${fields}\n筛选条件：${filterDesc}\n汇总维度：${summaryDimLabel}`
     );
     toast('汇总结果已导出，已写入导出记录');
   }
@@ -2607,14 +3087,14 @@
       return def ? def.label : el.value;
     });
     const fields = labels.join(',');
-    const filterDesc = `筛选条件：${buildTaskResultFilterDesc(taskId)}`;
+    const filterDesc = buildTaskResultFilterDesc(taskId);
     const scope = '压测明细（按筛选与所选字段）';
     const { downloadFileName, taskName } = appendExportLog({ taskId, scope, fields, filterDesc });
-    addLog(taskId, `导出压测明细（${fields}，${filterDesc}）`);
+    addLog(taskId, `压测结果：导出压测明细（${fields}，筛选条件：${filterDesc}）`);
     hideModal();
     triggerExportFileDownload(
       downloadFileName,
-      `明细导出\n任务：${taskName}\n范围：${scope}\n字段：${fields}\n${filterDesc}`
+      `明细导出\n任务：${taskName}\n范围：${scope}\n字段：${fields}\n筛选条件：${filterDesc}`
     );
     toast('明细已导出，已写入导出记录');
   }
@@ -2687,7 +3167,7 @@
     navigate, render,
     setDetailStep: (step) => { detailStep = step; render(); },
     setDetailTab: (tab) => { detailStep = resolveDetailStep(tab) ?? 0; render(); },
-    searchTasks, resetTaskFilters, setListPage, setListPageSize,
+    searchTasks, resetTaskFilters, searchExports, resetExportFilters, setListPage, setListPageSize,
     setResultTask: (id) => { window._resultTaskId = id; getListPager('results').page = 1; render(); },
     setResultDim: (d) => { window._resultDim = d; getListPager('results').page = 1; render(); },
     setResultYear: (y) => { window._resultYear = y === '' ? '' : y; getListPager('results').page = 1; render(); },
@@ -2702,15 +3182,17 @@
     },
     editTask,
     confirmDeleteTask, cancelDeleteTask,
-    startCreateTask, cancelCreateTask, cancelEditTask, onTaskReportEndChange, saveTask, deleteTask, startSync, confirmList, excludeRecord, setSyncStatusFilter,
-    calcIndustryAvg, fillIndustryData, confirmAvg, fetchCredit, fetchEcl, runStress,
+    startCreateTask, cancelCreateTask, cancelEditTask, onTaskReportEndChange, saveTask, deleteTask, startSync, syncAirportThroughput, confirmList, excludeRecord, setSyncStatusFilter,
+    calcIndustryAvg, fillIndustryData, confirmAvg, fetchCredit, fetchEcl, runStress, goToApplicationReport,
     openFactorModal, saveFactor, viewFactor: (id) => openFactorModal('view', id),
     editFactor: (id) => openFactorModal('edit', id), deleteFactor, toggleFactor,
     openScenarioModal, saveScenario, viewScenario: (id) => openScenarioModal('view', id),
     editScenario: (id) => openScenarioModal('edit', id), publishScenario, disableScenario, deleteScenario,
     openMappingModal, saveMapping, viewMapping: (id) => openMappingModal('view', id),
     editMapping: (id) => openMappingModal('edit', id), deleteMapping, toggleMapping,
+    resetAirportThroughputForm, editAirportThroughput, saveAirportThroughput, deleteAirportThroughput,
     exportResultsSummary, openExportDetailModal, toggleExportDetailFields, doExportDetail,
+    issueRiskWarnings, generateRegulatoryReport,
     downloadExport, syncFinancial: startSync, hideModal,
     openTaskLogDrawer, closeTaskLogDrawer,
     toggleSider, setSiderCollapsed,

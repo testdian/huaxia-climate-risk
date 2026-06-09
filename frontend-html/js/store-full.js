@@ -48,6 +48,8 @@ window.CRST_STORE = (function () {
       avgConfirmedAt: '2025-06-02 16:30:00',
       creditFetched: true,
       eclFetched: true,
+      riskWarningIssuedAt: '2025-06-03 19:00:00',
+      regulatoryReportGeneratedAt: '2025-06-03 19:15:00',
       createdAt: '2025-06-01 10:00:00',
       updatedAt: '2025-06-03 18:00:00',
     },
@@ -156,14 +158,24 @@ window.CRST_STORE = (function () {
 
   let taskLogs = {
     1: [
-      { time: '2025-06-01 10:00:00', action: '创建任务', operator: '总行管理员' },
-      { time: '2025-06-02 14:00:00', action: '同步财务数据完成', operator: '系统' },
-      { time: '2025-06-02 15:00:00', action: '确认数据清单', operator: '总行管理员' },
-      { time: '2025-06-03 18:00:00', action: '压测完成', operator: '系统' },
+      { time: '2025-06-03 19:15:00', action: '应用报送：生成监管报送 Excel 文件包', operator: '总行管理员' },
+      { time: '2025-06-03 19:00:00', action: '应用报送：向 1 户企业所在分行下发风险预警', operator: '总行管理员' },
+      { time: '2025-06-03 18:00:00', action: '压测结果：场景压测完成，已生成压测结果（2026-2040年，3个情景）', operator: '系统' },
+      { time: '2025-06-03 17:45:00', action: '场景压测：开始执行（3个情景，2026-2040年）', operator: '总行管理员' },
+      { time: '2025-06-03 17:30:00', action: '场景压测：调取 ECL 系统数据', operator: '总行管理员' },
+      { time: '2025-06-03 17:28:00', action: '场景压测：调取信贷系统数据', operator: '总行管理员' },
+      { time: '2025-06-02 16:30:00', action: '数据处理：确认处理结果，进入场景压测', operator: '总行管理员' },
+      { time: '2025-06-02 16:15:00', action: '数据同步与确认：行业均值已填充至 1 条样本', operator: '总行管理员' },
+      { time: '2025-06-02 16:00:00', action: '数据同步与确认：计算行业平均值', operator: '总行管理员' },
+      { time: '2025-06-02 15:00:00', action: '数据同步与确认：确认数据清单', operator: '总行管理员' },
+      { time: '2025-06-02 14:05:00', action: '数据同步与确认：财务数据同步完成，待确认清单', operator: '系统' },
+      { time: '2025-06-02 14:00:00', action: '数据同步与确认：开始同步财务数据', operator: '总行管理员' },
+      { time: '2025-06-01 10:00:00', action: '创建任务：保存任务', operator: '总行管理员' },
     ],
     2: [
-      { time: '2025-06-03 11:20:00', action: '创建任务', operator: '总行管理员' },
-      { time: '2025-06-04 09:10:00', action: '同步财务数据完成', operator: '系统' },
+      { time: '2025-06-04 09:10:00', action: '数据同步与确认：财务数据同步完成，待确认清单', operator: '系统' },
+      { time: '2025-06-04 09:05:00', action: '数据同步与确认：开始同步财务数据', operator: '总行管理员' },
+      { time: '2025-06-03 11:20:00', action: '创建任务：保存任务', operator: '总行管理员' },
     ],
   };
 
@@ -197,12 +209,14 @@ window.CRST_STORE = (function () {
     {
       id: 1, taskCode: 'CRST20250604001', taskName: '2025年一季度气候风险压测',
       exportType: '表格', fileFormat: 'Excel', scope: '行业汇总',
+      filter: '场景=全部，年份=2040，行业=全部，分行=全部，关键词=无，违约样本=全部',
       fields: '行业,公司数,平均影响率,ECL变化', operator: '总行管理员', exportedAt: '2025-06-03 19:00:00',
       downloadFileName: '2025年一季度气候风险压测20250603190000.xlsx',
     },
     {
       id: 2, taskCode: 'CRST20250604001', taskName: '2025年一季度气候风险压测',
       exportType: '图表', fileFormat: 'PDF', scope: '分行维度',
+      filter: '场景=有序转型，年份=2036，行业=钢铁，分行=北京分行，关键词=无，违约样本=是',
       fields: '分行,平均影响率,排名', operator: '总行管理员', exportedAt: '2025-06-03 19:15:00',
       downloadFileName: '2025年一季度气候风险压测20250603191500.xlsx',
     },
