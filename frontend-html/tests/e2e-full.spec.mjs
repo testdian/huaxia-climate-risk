@@ -22,9 +22,10 @@ test.describe('气候风险压测完整版', () => {
   });
 
   test('页面加载与菜单', async ({ page }) => {
-    await expect(page.locator('.sider-logo')).toContainText('气候风险压测');
-    await expect(page.locator('#menu a[data-page="tasks"]')).toBeVisible();
-    await expect(page.locator('.header')).toContainText('总行管理员');
+    await expect(page.locator('.sider-logo')).toContainText('华夏银行绿金系统');
+    await expect(page.locator('[data-nav-page="data-process"]')).toBeVisible();
+    await expect(page.locator('[data-nav-page="stress-trans"]')).toBeVisible();
+    await expect(page.locator('[data-nav-page="results"]')).toBeVisible();
     await expect(page.locator('.footer')).toBeVisible();
   });
 
@@ -61,13 +62,13 @@ test.describe('气候风险压测完整版', () => {
     await page.fill('#d_taskName', taskName);
     await page.fill('#d_start', '2025-01-01');
     await page.fill('#d_end', '2025-03-31');
-    await page.selectOption('#d_caliber', '合并报表');
+    await page.selectOption('#d_caliber', '两种口径均输出');
     await page.click('.task-flow-card .btn-primary');
 
     await expect(page.locator('#toast')).toContainText('任务已创建', { timeout: 3000 });
     await expect(page.locator('.breadcrumb')).toContainText(taskName);
 
-    await page.click('.step-nav-item[data-step="1"]');
+    await page.click('.module-subnav-btn:has-text("财务数据")');
     await page.click('button:has-text("同步财务数据")');
     await expect(page.locator('#toast')).toContainText('同步完成', { timeout: 5000 });
 
@@ -81,9 +82,8 @@ test.describe('气候风险压测完整版', () => {
     await expect(page.locator('#toast')).toContainText('场景压测', { timeout: 3000 });
 
     await page.click('button:has-text("下一步：进入场景压测")');
-    await expect(page.locator('#toast')).toContainText('场景压测', { timeout: 3000 });
+    await expect(page.locator('#toast')).toContainText('转型风险', { timeout: 3000 });
 
-    await page.click('.step-nav-item[data-step="3"]');
     await page.click('button:has-text("调取信贷系统")');
     await expect(page.locator('#toast')).toContainText('信贷', { timeout: 3000 });
     await page.click('button:has-text("调取ECL系统")');
@@ -92,14 +92,13 @@ test.describe('气候风险压测完整版', () => {
     await page.click('button:has-text("执行压测")');
     await expect(page.locator('#toast')).toContainText('压测已完成', { timeout: 5000 });
 
-    await page.click('.step-nav-item[data-step="4"]');
-    await expect(page.locator('table tbody tr').first()).not.toContainText('暂无压测结果');
+    await expect(page.locator('.kpi-row')).toBeVisible();
 
-    await page.click('button:has-text("导出结果")');
-    await page.click('#modalExport .btn-primary');
+    await page.click('button:has-text("导出明细")');
+    await page.click('#modalExportDetail .btn-primary');
     await expect(page.locator('#toast')).toContainText('留痕', { timeout: 3000 });
 
-    await page.click('#menu a[data-page="exports"]');
+    await page.click('[data-nav-page="exports"]');
     await expect(page.locator('table tbody')).toContainText('Excel');
   });
 
@@ -133,6 +132,7 @@ test.describe('气候风险压测完整版', () => {
     await page.fill('#d_end', '2024-12-31');
     await page.click('.task-flow-card .btn-primary');
     await page.locator('.breadcrumb a').first().click();
+    await expect(page.locator('h2.page-title')).toContainText('数据处理任务');
 
     const row = page.locator(`table tbody tr:has-text("${name}")`);
     await expect(row.locator('button:has-text("编辑")')).toBeVisible();

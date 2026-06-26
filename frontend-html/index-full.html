@@ -17,25 +17,47 @@
       </div>
       <nav class="sider-body">
         <ul class="menu" id="menu">
-          <li class="menu-section open" data-section="stress">
-            <button type="button" class="menu-level-1" aria-expanded="true">
-              <span class="menu-level-text">气候风险压测</span>
-              <span class="menu-chevron" aria-hidden="true"></span>
+          <li class="menu-section menu-section--nav open" data-section="data-process">
+            <button type="button" class="menu-level-1 menu-level-1--nav active" data-nav-page="data-process" title="数据处理">
+              <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8"/></svg></span>
+              <span class="menu-level-text">数据处理</span>
             </button>
-            <ul class="menu-sub">
-              <li><a data-page="tasks" class="active" title="压测任务管理">
-                <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg></span>
-                <span class="menu-text">压测任务管理</span>
-              </a></li>
-              <li><a data-page="results" title="压测结果分析">
-                <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 20V10M12 20V4M6 20v-6"/></svg></span>
-                <span class="menu-text">压测结果分析</span>
-              </a></li>
-              <li><a data-page="exports" title="导出记录">
-                <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg></span>
-                <span class="menu-text">导出记录</span>
-              </a></li>
-            </ul>
+          </li>
+          <li class="menu-section menu-section--nav" data-section="stress-trans">
+            <button type="button" class="menu-level-1 menu-level-1--nav" data-nav-page="stress-trans" title="压测方法1-现有政策（基准）">
+              <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4"/></svg></span>
+              <span class="menu-level-text">压测方法1-现有政策（基准）</span>
+            </button>
+          </li>
+          <li class="menu-section menu-section--nav" data-section="stress-phys">
+            <button type="button" class="menu-level-1 menu-level-1--nav" data-nav-page="stress-phys" title="压测方法2-温室世界">
+              <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"/></svg></span>
+              <span class="menu-level-text">压测方法2-温室世界</span>
+            </button>
+          </li>
+          <li class="menu-section menu-section--nav" data-section="stress-comp">
+            <button type="button" class="menu-level-1 menu-level-1--nav" data-nav-page="stress-comp" title="压测方法3-有序转型">
+              <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></span>
+              <span class="menu-level-text">压测方法3-有序转型</span>
+            </button>
+          </li>
+          <li class="menu-section menu-section--nav" data-section="results">
+            <button type="button" class="menu-level-1 menu-level-1--nav" data-nav-page="results" title="压测结果分析">
+              <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 20V10M12 20V4M6 20v-6"/></svg></span>
+              <span class="menu-level-text">压测结果分析</span>
+            </button>
+          </li>
+          <li class="menu-section menu-section--nav" data-section="app-report">
+            <button type="button" class="menu-level-1 menu-level-1--nav" data-nav-page="app-report" title="应用报送">
+              <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg></span>
+              <span class="menu-level-text">应用报送</span>
+            </button>
+          </li>
+          <li class="menu-section menu-section--nav" data-section="exports">
+            <button type="button" class="menu-level-1 menu-level-1--nav" data-nav-page="exports" title="导出记录">
+              <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg></span>
+              <span class="menu-level-text">导出记录</span>
+            </button>
           </li>
           <li class="menu-section open" data-section="config">
             <button type="button" class="menu-level-1" aria-expanded="true">
@@ -58,6 +80,10 @@
               <li><a data-page="airport-throughput" title="机场吞吐量维护">
                 <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 16l20-6-20-6v5l10 1-10 1v5z"/><path d="M8 18h8"/></svg></span>
                 <span class="menu-text">机场吞吐量维护</span>
+              </a></li>
+              <li><a data-page="carbon-emission" title="投融资碳核算碳排放量">
+                <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"/></svg></span>
+                <span class="menu-text">投融资碳核算碳排放量</span>
               </a></li>
               <li><a data-page="calc-doc" title="计算方法说明">
                 <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg></span>
@@ -85,9 +111,6 @@
       </div>
     </aside>
     <div class="main">
-      <header class="header">
-        <span class="sub" id="pageTitle">压测任务管理</span>
-      </header>
       <div class="content" id="content"></div>
     </div>
   </div>
@@ -228,7 +251,6 @@
           <label>输出字段（逗号分隔）</label>
           <input class="input" id="s_out" placeholder="revenueAfter, eclAfter, impactRate" />
         </div>
-        <p class="flow-hint">保存为草稿 → 发布生效后新任务立即使用；已发布场景可停用，不可直接删除。</p>
       </div>
       <div class="modal-ft">
         <button class="btn btn-default" onclick="CRST_APP.hideModal()">关闭</button>
@@ -274,7 +296,6 @@
     <div class="modal modal-lg modal-export-detail">
       <div class="modal-hd">导出压测明细</div>
       <div class="modal-bd">
-        <p class="export-detail-hint">请勾选需要导出的列，确认后将生成 Excel 并写入「导出记录」。</p>
         <div class="export-field-toolbar">
           <span class="export-field-toolbar-label">导出字段</span>
           <button type="button" class="btn btn-link" onclick="CRST_APP.toggleExportDetailFields(true)">全选</button>
@@ -289,6 +310,24 @@
     </div>
   </div>
 
+  <!-- 数据处理：导入线下处理结果 -->
+  <div class="modal-mask" id="modalDataProcessImport">
+    <div class="modal">
+      <div class="modal-hd">导入线下处理结果</div>
+      <div class="modal-bd">
+        <p class="modal-desc">上传经线下编辑的 Excel 文件，字段需与「导出待处理清单」模板一致（含标准行业、收入、成本收入比等可填列）。</p>
+        <div class="toolbar" style="margin-top:12px">
+          <button type="button" class="btn btn-default" onclick="CRST_APP.mockPickDataProcessImportFile()">选择 Excel 文件</button>
+          <span class="flow-hint" id="dp_import_file_hint">未选择文件</span>
+        </div>
+      </div>
+      <div class="modal-ft">
+        <button class="btn btn-default" onclick="CRST_APP.hideModal()">取消</button>
+        <button class="btn btn-primary" onclick="CRST_APP.confirmDataProcessImport()">确认导入</button>
+      </div>
+    </div>
+  </div>
+
   <!-- 删除任务确认 -->
   <div class="modal-mask" id="modalTaskDelete">
     <div class="modal">
@@ -299,6 +338,136 @@
       <div class="modal-ft">
         <button class="btn btn-default" onclick="CRST_APP.cancelDeleteTask()">取消</button>
         <button class="btn btn-primary" onclick="CRST_APP.confirmDeleteTask()">确认删除</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- v0.4：行业歧义甄别 -->
+  <div class="modal-mask" id="modalIndustryDisambig">
+    <div class="modal modal-lg">
+      <div class="modal-hd">行业歧义甄别确认</div>
+      <div class="modal-bd">
+        <div id="disambigBody"></div>
+      </div>
+      <div class="modal-ft">
+        <button class="btn btn-default" onclick="CRST_APP.hideModal()">取消</button>
+        <button class="btn btn-primary" onclick="CRST_APP.saveIndustryDisambig()">确认甄别结果</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- v0.4：排除特殊客户 -->
+  <div class="modal-mask" id="modalExcludeCustomer">
+    <div class="modal modal-lg">
+      <div class="modal-hd">排除特殊客户</div>
+      <div class="modal-bd">
+        <div id="excludeCustomerBody"></div>
+        <div class="form-row" style="margin-top:12px">
+          <label>排除说明</label>
+          <textarea class="textarea" id="excludeReason" placeholder="如：监管报送排除已违约客户"></textarea>
+        </div>
+      </div>
+      <div class="modal-ft">
+        <button class="btn btn-default" onclick="CRST_APP.hideModal()">取消</button>
+        <button class="btn btn-primary" onclick="CRST_APP.confirmExcludeCustomers()">确认排除</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- v0.4：风险预警下发渠道 -->
+  <div class="modal-mask" id="modalRiskPush">
+    <div class="modal">
+      <div class="modal-hd">下发风险预警</div>
+      <div class="modal-bd">
+        <div class="form-row">
+          <label>推送渠道</label>
+          <label><input type="checkbox" id="pushChannelSystem" checked /> 系统内消息</label>
+          <label style="margin-left:16px"><input type="checkbox" id="pushChannelWecom" checked /> 企业微信推送</label>
+        </div>
+        <div class="wecom-preview" id="wecomPreview"></div>
+      </div>
+      <div class="modal-ft">
+        <button class="btn btn-default" onclick="CRST_APP.hideModal()">取消</button>
+        <button class="btn btn-primary" onclick="CRST_APP.confirmIssueRiskWarnings()">确认下发</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 新建压测任务（压测方法1-3） -->
+  <div class="modal-mask" id="modalCreateStressJob">
+    <div class="modal modal-lg">
+      <div class="modal-hd">新建压测任务</div>
+      <div class="modal-bd">
+        <div class="form-row">
+          <label><span class="req">*</span>压测任务名称</label>
+          <input class="input" id="sj_name" placeholder="如 2025Q1现有政策压测" />
+        </div>
+        <div class="form-row">
+          <label><span class="req">*</span>数据来源</label>
+          <div class="radio-card-group">
+            <label class="radio-card">
+              <input type="radio" name="sj_source" value="REF" checked onchange="CRST_APP.onStressJobSourceChange()" />
+              <span class="radio-card-content">
+                <span class="radio-card-label">引用数据处理任务</span>
+              </span>
+            </label>
+            <label class="radio-card">
+              <input type="radio" name="sj_source" value="IMPORT" onchange="CRST_APP.onStressJobSourceChange()" />
+              <span class="radio-card-content">
+                <span class="radio-card-label">导入财务数据</span>
+              </span>
+            </label>
+          </div>
+        </div>
+        <div id="sj_ref_panel">
+          <div class="form-row">
+            <label><span class="req">*</span>选择数据处理任务</label>
+            <select class="select" id="sj_ref_task"></select>
+          </div>
+        </div>
+        <div id="sj_import_panel" style="display:none">
+          <div class="form-grid-2">
+            <div class="form-row">
+              <label>报告期开始</label>
+              <input class="input" id="sj_import_start" type="date" />
+            </div>
+            <div class="form-row">
+              <label>报告期结束</label>
+              <input class="input" id="sj_import_end" type="date" />
+            </div>
+            <div class="form-row">
+              <label>数据口径</label>
+              <select class="select" id="sj_import_caliber">
+                <option value="05财报">05财报</option>
+                <option value="07财报">07财报</option>
+                <option value="两种口径均输出">两种口径均输出</option>
+              </select>
+            </div>
+            <div class="form-row">
+              <label>导入条数</label>
+              <input class="input" id="sj_import_count" type="number" min="1" max="5000" value="500" />
+            </div>
+          </div>
+          <div class="toolbar" style="margin-top:8px">
+            <button type="button" class="btn btn-default" onclick="CRST_APP.mockPickStressImportFile()">选择 Excel 文件</button>
+            <span class="flow-hint" id="sj_import_file_hint">未选择文件，保存时将按条数生成</span>
+          </div>
+        </div>
+      </div>
+      <div class="modal-ft">
+        <button class="btn btn-default" onclick="CRST_APP.hideModal()">取消</button>
+        <button class="btn btn-primary" onclick="CRST_APP.confirmCreateStressJob()">创建并进入压测</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- v0.4：违约客户下钻清单 -->
+  <div class="modal-mask" id="modalDefaultDrill">
+    <div class="modal modal-lg">
+      <div class="modal-hd" id="defaultDrillTitle">违约客户清单</div>
+      <div class="modal-bd" id="defaultDrillBody"></div>
+      <div class="modal-ft">
+        <button class="btn btn-default" onclick="CRST_APP.hideModal()">关闭</button>
       </div>
     </div>
   </div>

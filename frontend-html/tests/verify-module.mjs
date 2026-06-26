@@ -21,10 +21,6 @@ async function waitToast(page, text, timeout = 5000) {
   throw new Error(`toast 未出现「${text}」，最后内容：${await page.locator('#toast').textContent()}`);
 }
 
-async function isModalOpen(page, id) {
-  return page.locator(`#${id}`).evaluate((el) => el.classList.contains('show'));
-}
-
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage();
 const jsErrors = [];
@@ -36,8 +32,10 @@ try {
   pass('页面加载与 CRST_APP 初始化');
 
   const pages = [
-    ['tasks', '压测任务'],
+    ['data-process', '数据处理'],
+    ['stress-trans', '压测方法1'],
     ['results', '压测结果分析'],
+    ['app-report', '应用报送'],
     ['exports', '导出记录'],
     ['factors', '因子'],
     ['mappings', '映射'],
@@ -49,7 +47,7 @@ try {
     await link.click();
     await page.waitForTimeout(250);
     const title = (await page.locator('.page-title').first().textContent()) || '';
-    if (title.includes(hint) || (p === 'factors' && title.includes('因子')) || (p === 'mappings' && title.includes('映射'))) {
+    if (title.includes(hint) || (p === 'factors' && title.includes('因子')) || (p === 'mappings' && title.includes('映射')) || (p === 'data-process' && title.includes('数据处理'))) {
       pass(`菜单「${p}」可打开`);
     } else {
       fail(`菜单「${p}」标题异常：${title.trim()}`);
@@ -62,44 +60,65 @@ try {
   if (scenariosHidden) pass('「场景计算方法配置」默认隐藏');
   else fail('「场景计算方法配置」应默认隐藏');
 
-  await page.click('#menu a[data-page="tasks"]');
-  await page.locator('table tbody tr').first().locator('button:has-text("查看")').click();
-  await page.waitForSelector('.step-nav-item');
-  const stepCount = await page.locator('.step-nav-item').count();
-  if (stepCount === 6) pass('任务详情为 6 步流程');
-  else fail(`步骤条应为 6 步，实际 ${stepCount}`);
+  await page.click('[data-nav-page="data-process"]');
+  const subnavCount = await page.locator('.module-subnav-btn').count();
+  if (subnavCount === 4) pass('数据处理模块为 4 个子 Tab');
+  else fail(`数据处理子 Tab 应为 4 个，实际 ${subnavCount}`);
 
-  await page.click('.step-nav-item[data-step="4"]');
-  if (await page.locator('button:has-text("导出明细")').isVisible()) pass('压测结果步可导出明细');
-  else fail('压测结果步缺少导出明细');
+  await page.locator('table tbody tr').first().locator('button:has-text("处理")').click();
+  await page.waitForTimeout(400);
+  if (await page.locator('.page-title:has-text("压测结果分析")').isVisible()) {
+    pass('已完成任务「处理」进入压测结果分析');
+  } else {
+    fail('已完成任务处理入口未进入结果分析');
+  }
 
-  await page.click('button:has-text("下一步：应用报送")');
-  await page.waitForTimeout(300);
-  if ((await page.locator('.step-panel-title').textContent())?.includes('应用报送')) pass('可进入应用报送');
-  else fail('无法进入应用报送');
+  if (await page.locator('button:has-text("导出明细")').isVisible()) pass('结果分析页可导出明细');
+  else fail('结果分析页缺少导出明细');
 
-  if (await page.locator('button:has-text("下发风险预警")').isEnabled()) pass('已完成任务可下发风险预警');
-  else fail('已完成任务下发风险预警被禁用');
+  if (await page.locator('button:has-text("应用报送")').isVisible()) pass('结果分析页可跳转应用报送');
+  else fail('结果分析页缺少应用报送入口');
 
-  await page.click('#menu a[data-page="exports"]');
+  await page.click('[data-nav-page="app-report"]');
+  await page.waitForTimeout(250);
+  if (await page.locator('.page-title:has-text("应用报送")').isVisible()) pass('应用报送独立菜单可打开');
+  else fail('应用报送独立菜单未打开');
+
+  if (await page.locator('button:has-text("下发风险预警")').isEnabled()) pass('应用报送页可下发风险预警');
+  else fail('应用报送页下发风险预警被禁用');
+
+  await page.click('[data-nav-page="exports"]');
   const b1 = await page.locator('.export-filter-bar .filter-actions button').nth(0).boundingBox();
   const b2 = await page.locator('.export-filter-bar .filter-actions button').nth(1).boundingBox();
   if (b1 && b2 && Math.abs(b1.y - b2.y) < 5) pass('导出记录筛选按钮同一行');
   else fail('导出记录筛选按钮未同一行');
 
-  await page.click('#menu a[data-page="tasks"]');
+  await page.click('[data-nav-page="data-process"]');
   const taskName = `验证_${Date.now()}`;
   await page.click('button:has-text("新建任务")');
   await page.fill('#d_taskName', taskName);
   await page.fill('#d_start', '2025-01-01');
   await page.fill('#d_end', '2025-03-31');
-  await page.selectOption('#d_caliber', '合并报表');
+  await page.selectOption('#d_caliber', '两种口径均输出');
   await page.click('.task-flow-card .btn-primary');
   await waitToast(page, '创建');
 
-  await page.click('.step-nav-item[data-step="1"]');
+  await page.click('.module-subnav-btn:has-text("财务数据")');
   await page.click('button:has-text("同步财务数据")');
-  await waitToast(page, '财务数据同步完成', 8000);
+  await waitToast(page, '同步完成', 8000);
+  const disambigBtn = page.locator('button:has-text("行业甄别确认")');
+  if (await disambigBtn.isVisible()) {
+    await disambigBtn.click();
+    await page.waitForFunction(() => document.getElementById('modalIndustryDisambig')?.classList.contains('show'));
+    const notes = page.locator('.disambig-note');
+    const noteCount = await notes.count();
+    for (let i = 0; i < noteCount; i += 1) {
+      await notes.nth(i).fill('验证脚本甄别依据');
+    }
+    await page.click('#modalIndustryDisambig .btn-primary');
+    await waitToast(page, '甄别');
+    pass('行业歧义甄别后可继续');
+  }
   const abnormalDelete = page.locator('table tbody button.btn-link:has-text("删除")');
   if (await abnormalDelete.count() > 0) {
     await abnormalDelete.first().click();
@@ -114,7 +133,7 @@ try {
   await page.click('button:has-text("填充数据到样本")');
   await waitToast(page, '场景压测');
   await page.click('button:has-text("下一步：进入场景压测")');
-  await waitToast(page, '场景压测');
+  await waitToast(page, '转型风险');
   await page.click('button:has-text("调取信贷系统")');
   await waitToast(page, '信贷');
   await page.click('button:has-text("调取ECL系统")');
@@ -123,10 +142,8 @@ try {
   await waitToast(page, '完成', 8000);
   pass('新建任务全流程至压测完成');
 
-  await page.click('.step-nav-item[data-step="4"]');
-  const detailRows = await page.locator('.result-section table tbody tr').count();
-  if (detailRows > 0) pass(`压测结果页有数据（${detailRows} 行）`);
-  else fail('压测完成后结果页无数据');
+  if (await page.locator('.kpi-row').isVisible()) pass('压测完成后进入结果分析页');
+  else fail('压测完成后未进入结果分析页');
 
   await page.click('button:has-text("导出明细")');
   await page.waitForFunction(() => {
@@ -137,7 +154,8 @@ try {
   await waitToast(page, '导出');
   pass('导出明细弹窗与留痕正常');
 
-  await page.click('button:has-text("下一步：应用报送")');
+  await page.click('[data-nav-page="app-report"]');
+  await page.waitForTimeout(250);
   await page.click('button:has-text("生成监管报送 Excel")');
   await waitToast(page, '监管报送');
   pass('应用报送生成监管 Excel');

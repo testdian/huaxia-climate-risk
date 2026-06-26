@@ -80,18 +80,6 @@ a:hover { color: var(--primary-hover); }
 
 .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 
-.header {
-  height: var(--header-height);
-  background: var(--white);
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 24px;
-}
-
-.header .sub { color: var(--text-secondary); font-size: 13px; }
-
 .content {
   flex: 1;
   overflow: auto;
@@ -207,7 +195,7 @@ tr:hover td { background: var(--primary-bg); }
 
 .form-row label .req { color: var(--error); margin-right: 4px; }
 
-input, select, textarea {
+input:not([type="checkbox"]):not([type="radio"]), select, textarea {
   width: 100%;
   height: 32px;
   padding: 4px 11px;
@@ -217,9 +205,20 @@ input, select, textarea {
   outline: none;
 }
 
-input:focus, select:focus, textarea:focus {
+input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:focus {
   border-color: var(--primary);
   box-shadow: 0 0 0 2px rgba(52,119,107,.15);
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  margin: 0;
+  flex-shrink: 0;
+  cursor: pointer;
+  accent-color: var(--primary);
 }
 
 textarea { height: auto; min-height: 80px; resize: vertical; }
@@ -501,6 +500,17 @@ th, td { border: 1px solid var(--border); }
 }
 
 .modal-bd { padding: 20px; }
+
+.modal-bd .form-row {
+  margin-bottom: 16px;
+}
+
+.modal-bd .form-row > label {
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
 
 .modal-ft {
   padding: 12px 20px;
