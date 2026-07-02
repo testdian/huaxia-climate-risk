@@ -33,16 +33,22 @@
           <input class="input" id="f_name" placeholder="请输入" />
         </div>
         <div class="form-row">
-          <label><span class="req">*</span>报告期开始</label>
-          <input class="input" id="f_start" type="date" />
+          <label><span class="req">*</span>报告年度</label>
+          <select class="select" id="f_year"></select>
         </div>
         <div class="form-row">
-          <label><span class="req">*</span>报告期结束</label>
-          <input class="input" id="f_end" type="date" />
+          <label><span class="req">*</span>贷款类型</label>
+          <select class="select" id="f_loan_type">
+            <option value="CORPORATE">对公</option>
+            <option value="PERSONAL">个人</option>
+          </select>
         </div>
         <div class="form-row">
-          <label>数据口径</label>
-          <input class="input" id="f_caliber" placeholder="如：合并报表、母公司" />
+          <label><span class="req">*</span>贷款地区</label>
+          <select class="select" id="f_loan_region">
+            <option value="DOMESTIC">境内</option>
+            <option value="OVERSEAS">境外</option>
+          </select>
         </div>
         <div class="form-row">
           <label>任务说明</label>

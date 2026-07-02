@@ -26,9 +26,9 @@ let tasks = [
     id: 1,
     taskCode: 'CRST20250604001',
     taskName: '2025年一季度气候风险压测',
-    reportPeriodStart: '2025-01-01',
-    reportPeriodEnd: '2025-03-31',
-    dataCaliber: '合并报表',
+    reportYear: 2025,
+    loanType: 'CORPORATE',
+    loanRegion: 'DOMESTIC',
     description: '季度例行压测',
     status: 'COMPLETED',
     createdAt: '2025-06-04 10:00:00',
@@ -37,9 +37,9 @@ let tasks = [
     id: 2,
     taskCode: 'CRST20250604002',
     taskName: '高耗能行业专项压测',
-    reportPeriodStart: '2024-10-01',
-    reportPeriodEnd: '2024-12-31',
-    dataCaliber: '母公司',
+    reportYear: 2024,
+    loanType: 'CORPORATE',
+    loanRegion: 'DOMESTIC',
     description: '高耗能行业专项',
     status: 'PENDING_CONFIRM',
     createdAt: '2025-06-04 11:20:00',
@@ -255,8 +255,8 @@ function computeSummary(taskId, dimension) {
 }
 
 function createTask(payload) {
-  const { taskName, reportPeriodStart, reportPeriodEnd, dataCaliber, description } = payload;
-  if (!taskName || !reportPeriodStart || !reportPeriodEnd) {
+  const { taskName, reportYear, loanType, loanRegion, description } = payload;
+  if (!taskName || !reportYear || !loanType || !loanRegion) {
     return { ok: false, message: '请填写必填项' };
   }
   const id = nextTaskId();
@@ -267,9 +267,9 @@ function createTask(payload) {
     id,
     taskCode: 'CRST' + now.getTime(),
     taskName,
-    reportPeriodStart,
-    reportPeriodEnd,
-    dataCaliber: dataCaliber || '待业务确认',
+    reportYear: Number(reportYear),
+    loanType,
+    loanRegion,
     description: description || '',
     status: 'DRAFT',
     createdAt,

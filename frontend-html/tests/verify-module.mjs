@@ -35,7 +35,6 @@ try {
     ['data-process', '数据处理'],
     ['stress-trans', '压测方法1'],
     ['results', '压测结果分析'],
-    ['app-report', '应用报送'],
     ['exports', '导出记录'],
     ['factors', '因子'],
     ['mappings', '映射'],
@@ -54,11 +53,13 @@ try {
     }
   }
 
-  const scenariosHidden = await page.locator('#menu a[data-page="scenarios"]').evaluate(
-    (el) => el.closest('li').style.display === 'none'
-  );
-  if (scenariosHidden) pass('「场景计算方法配置」默认隐藏');
-  else fail('「场景计算方法配置」应默认隐藏');
+  const scenariosMenuCount = await page.locator('#menu a[data-page="scenarios"]').count();
+  if (scenariosMenuCount === 0) pass('「场景计算方法配置」菜单已移除');
+  else fail('「场景计算方法配置」菜单应已移除');
+
+  const appReportMenuCount = await page.locator('[data-nav-page="app-report"]').count();
+  if (appReportMenuCount === 0) pass('「应用报送」独立菜单已移除');
+  else fail('「应用报送」独立菜单应已移除');
 
   await page.click('[data-nav-page="data-process"]');
   const subnavCount = await page.locator('.module-subnav-btn').count();
@@ -76,16 +77,22 @@ try {
   if (await page.locator('button:has-text("导出明细")').isVisible()) pass('结果分析页可导出明细');
   else fail('结果分析页缺少导出明细');
 
-  if (await page.locator('button:has-text("应用报送")').isVisible()) pass('结果分析页可跳转应用报送');
+  if (await page.locator('button:has-text("应用报送")').isVisible()) pass('结果分析页可打开应用报送');
   else fail('结果分析页缺少应用报送入口');
 
-  await page.click('[data-nav-page="app-report"]');
-  await page.waitForTimeout(250);
-  if (await page.locator('.page-title:has-text("应用报送")').isVisible()) pass('应用报送独立菜单可打开');
-  else fail('应用报送独立菜单未打开');
+  await page.click('button:has-text("应用报送")');
+  await page.waitForTimeout(300);
+  const regulatoryModal = page.locator('#modalRegulatoryReport');
+  if (await regulatoryModal.evaluate((el) => el.classList.contains('show'))) {
+    pass('应用报送打开外部监管报送弹窗');
+  } else {
+    fail('应用报送未打开监管报送弹窗');
+  }
+  await page.click('#modalRegulatoryReport button:has-text("关闭")');
+  await page.waitForTimeout(200);
 
-  if (await page.locator('button:has-text("下发风险预警")').isEnabled()) pass('应用报送页可下发风险预警');
-  else fail('应用报送页下发风险预警被禁用');
+  if (await page.locator('button:has-text("一键下发预警")').isVisible()) pass('结果分析页可一键下发预警');
+  else fail('结果分析页缺少一键下发预警');
 
   await page.click('[data-nav-page="exports"]');
   const b1 = await page.locator('.export-filter-bar .filter-actions button').nth(0).boundingBox();
@@ -97,9 +104,9 @@ try {
   const taskName = `验证_${Date.now()}`;
   await page.click('button:has-text("新建任务")');
   await page.fill('#d_taskName', taskName);
-  await page.fill('#d_start', '2025-01-01');
-  await page.fill('#d_end', '2025-03-31');
-  await page.selectOption('#d_caliber', '两种口径均输出');
+  await page.selectOption('#d_reportYear', '2026');
+  await page.selectOption('#d_loanType', 'CORPORATE');
+  await page.selectOption('#d_loanRegion', 'DOMESTIC');
   await page.click('.task-flow-card .btn-primary');
   await waitToast(page, '创建');
 
@@ -125,24 +132,31 @@ try {
     await waitToast(page, '清理');
     pass('同步后删除无法处理企业后可继续');
   }
-  await page.locator('button:has-text("下一步：确认清单")').waitFor({ state: 'visible', timeout: 5000 });
-  await page.click('button:has-text("下一步：确认清单")');
-  await waitToast(page, '清单');
-  await page.click('button:has-text("计算行业平均值")');
-  await waitToast(page, '填充');
-  await page.click('button:has-text("填充数据到样本")');
-  await waitToast(page, '场景压测');
-  await page.click('button:has-text("下一步：进入场景压测")');
-  await waitToast(page, '转型风险');
-  await page.click('button:has-text("调取信贷系统")');
-  await waitToast(page, '信贷');
-  await page.click('button:has-text("调取ECL系统")');
-  await waitToast(page, 'ECL');
-  await page.click('button:has-text("重新执行压测")');
-  await waitToast(page, '完成', 8000);
-  pass('新建任务全流程至压测完成');
+  if (await page.locator('button:has-text("导入处理结果")').isVisible()) {
+    await page.click('button:has-text("导入处理结果")');
+    await page.click('button:has-text("选择 Excel 文件")');
+    await page.click('#modalDataProcessImport .btn-primary');
+    await waitToast(page, '导入', 5000);
+    pass('导入处理结果');
+  }
+  const completeModal = page.locator('#modalDataProcessComplete');
+  if (await completeModal.isVisible({ timeout: 3000 }).catch(() => false)) {
+    await page.click('#modalDataProcessComplete .btn-primary');
+    pass('数据处理完成弹窗');
+  }
+  if (await page.locator('.bank-basic-info-section').isVisible()) pass('参试银行基础信息表已展示');
+  else fail('缺少参试银行基础信息表');
 
-  if (await page.locator('.kpi-row').isVisible()) pass('压测完成后进入结果分析页');
+  await page.click('[data-nav-page="stress-trans"]');
+  await page.click('button:has-text("新建压测任务")');
+  await page.waitForTimeout(500);
+  await page.click('#modalCreateStressJob .btn-primary');
+  await waitToast(page, '压测', 5000);
+  await page.click('button:has-text("执行压测")');
+  await waitToast(page, '完成', 8000);
+  pass('新建压测任务并执行压测');
+
+  if (await page.locator('.analysis-panel--default-monitor').isVisible()) pass('压测完成后进入结果分析页');
   else fail('压测完成后未进入结果分析页');
 
   await page.click('button:has-text("导出明细")');
@@ -154,11 +168,13 @@ try {
   await waitToast(page, '导出');
   pass('导出明细弹窗与留痕正常');
 
-  await page.click('[data-nav-page="app-report"]');
-  await page.waitForTimeout(250);
-  await page.click('button:has-text("生成监管报送 Excel")');
+  await page.click('button:has-text("应用报送")');
+  await page.waitForTimeout(300);
+  await page.click('#modalRegulatoryReport button:has-text("生成监管报送 Excel")');
   await waitToast(page, '监管报送');
   pass('应用报送生成监管 Excel');
+  await page.keyboard.press('Escape').catch(() => {});
+  await page.waitForTimeout(200);
 
   await page.click('#menu a[data-page="airport-throughput"]');
   if (await page.locator('table tbody').textContent().then((t) => t.includes('华南机场'))) {

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>气候风险压测（完整版）- 华夏银行绿金系统</title>
   <link rel="stylesheet" href="css/theme.css" />
-  <link rel="stylesheet" href="css/full-ext.css" />
+  <link rel="stylesheet" href="css/full-ext.css?v=20260701" />
 </head>
 <body class="app-body">
   <div class="app" id="appRoot">
@@ -47,12 +47,6 @@
               <span class="menu-level-text">压测结果分析</span>
             </button>
           </li>
-          <li class="menu-section menu-section--nav" data-section="app-report">
-            <button type="button" class="menu-level-1 menu-level-1--nav" data-nav-page="app-report" title="应用报送">
-              <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg></span>
-              <span class="menu-level-text">应用报送</span>
-            </button>
-          </li>
           <li class="menu-section menu-section--nav" data-section="exports">
             <button type="button" class="menu-level-1 menu-level-1--nav" data-nav-page="exports" title="导出记录">
               <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg></span>
@@ -68,10 +62,6 @@
               <li><a data-page="factors" title="因子库管理">
                 <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg></span>
                 <span class="menu-text">因子库管理</span>
-              </a></li>
-              <li><a data-page="scenarios" title="场景计算方法配置">
-                <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></span>
-                <span class="menu-text">场景计算方法配置</span>
               </a></li>
               <li><a data-page="mappings" title="行业映射关系">
                 <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg></span>
@@ -147,8 +137,10 @@
             <input class="input" id="f_gb" placeholder="如 C2614" />
           </div>
           <div class="form-row">
-            <label>适用行业</label>
-            <input class="input" id="f_ind" placeholder="化工 / 钢铁 / -" />
+            <label>行业大类</label>
+            <select class="select" id="f_ind">
+              <option value="">请选择测试行业大类</option>
+            </select>
           </div>
           <div class="form-row">
             <label>细分类型</label>
@@ -315,7 +307,7 @@
     <div class="modal">
       <div class="modal-hd">导入线下处理结果</div>
       <div class="modal-bd">
-        <p class="modal-desc">上传经线下编辑的 Excel 文件，字段需与「导出待处理清单」模板一致（含标准行业、收入、成本收入比等可填列）。</p>
+        <p class="modal-desc">上传经线下编辑的 Excel 文件，字段需与「导出全部数据」模板一致（含标准行业、收入、成本收入比等可填列）。</p>
         <div class="toolbar" style="margin-top:12px">
           <button type="button" class="btn btn-default" onclick="CRST_APP.mockPickDataProcessImportFile()">选择 Excel 文件</button>
           <span class="flow-hint" id="dp_import_file_hint">未选择文件</span>
@@ -324,6 +316,37 @@
       <div class="modal-ft">
         <button class="btn btn-default" onclick="CRST_APP.hideModal()">取消</button>
         <button class="btn btn-primary" onclick="CRST_APP.confirmDataProcessImport()">确认导入</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 数据处理完成 -->
+  <div class="modal-mask" id="modalDataProcessComplete">
+    <div class="modal">
+      <div class="modal-hd">数据处理完成</div>
+      <div class="modal-bd">
+        <p>数据处理完毕，已生成<strong>高碳行业客户基础信息表</strong>与<strong>参试银行基础信息表</strong>。</p>
+      </div>
+      <div class="modal-ft">
+        <button class="btn btn-primary" onclick="CRST_APP.hideModal()">我知道了</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 参试银行基础信息表导入 -->
+  <div class="modal-mask" id="modalBankBasicImport">
+    <div class="modal">
+      <div class="modal-hd">导入参试银行基础信息表</div>
+      <div class="modal-bd">
+        <p class="modal-desc">上传经线下编辑的 Excel 文件，字段需与「导出基础信息表」模板一致。</p>
+        <div class="toolbar" style="margin-top:12px">
+          <button type="button" class="btn btn-default" onclick="CRST_APP.mockPickBankBasicImportFile()">选择 Excel 文件</button>
+          <span class="flow-hint" id="bank_basic_import_hint">未选择文件</span>
+        </div>
+      </div>
+      <div class="modal-ft">
+        <button class="btn btn-default" onclick="CRST_APP.hideModal()">取消</button>
+        <button class="btn btn-primary" onclick="CRST_APP.confirmBankBasicImport()">确认导入</button>
       </div>
     </div>
   </div>
@@ -374,21 +397,27 @@
     </div>
   </div>
 
-  <!-- v0.4：风险预警下发渠道 -->
+  <!-- 风险预警下发 -->
   <div class="modal-mask" id="modalRiskPush">
-    <div class="modal">
+    <div class="modal modal-risk-push">
       <div class="modal-hd">下发风险预警</div>
       <div class="modal-bd">
-        <div class="form-row">
-          <label>推送渠道</label>
-          <label><input type="checkbox" id="pushChannelSystem" checked /> 系统内消息</label>
-          <label style="margin-left:16px"><input type="checkbox" id="pushChannelWecom" checked /> 企业微信推送</label>
-        </div>
         <div class="wecom-preview" id="wecomPreview"></div>
       </div>
       <div class="modal-ft">
         <button class="btn btn-default" onclick="CRST_APP.hideModal()">取消</button>
         <button class="btn btn-primary" onclick="CRST_APP.confirmIssueRiskWarnings()">确认下发</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 外部监管报送 -->
+  <div class="modal-mask" id="modalRegulatoryReport">
+    <div class="modal modal-regulatory-report">
+      <div class="modal-hd">外部监管报送</div>
+      <div class="modal-bd" id="regulatoryReportModalBody"></div>
+      <div class="modal-ft">
+        <button class="btn btn-default" onclick="CRST_APP.hideModal()">关闭</button>
       </div>
     </div>
   </div>
@@ -474,7 +503,8 @@
 
   <script src="js/carbon-calculation-logic.js"></script>
   <script src="js/calc-doc-content.js"></script>
-  <script src="js/store-full.js"></script>
-  <script src="js/app-full.js"></script>
+  <script src="js/industry-selector-data.js"></script>
+  <script src="js/store-full.js?v=20260701q"></script>
+  <script src="js/app-full.js?v=20260701q"></script>
 </body>
 </html>

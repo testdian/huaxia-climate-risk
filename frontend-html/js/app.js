@@ -95,8 +95,9 @@ function renderTasks() {
       (t) => `
     <tr>
       <td>${t.taskName}</td>
-      <td>${t.reportPeriodStart} ~ ${t.reportPeriodEnd}</td>
-      <td>${t.dataCaliber || '-'}</td>
+      <td>${t.reportYear || '-'}</td>
+      <td>${t.loanType === 'CORPORATE' ? '对公' : t.loanType === 'PERSONAL' ? '个人' : '-'}</td>
+      <td>${t.loanRegion === 'DOMESTIC' ? '境内' : t.loanRegion === 'OVERSEAS' ? '境外' : '-'}</td>
       <td>${tag(t.status, STATUS_MAP)}</td>
       <td>${t.createdAt}</td>
       <td><button type="button" class="btn btn-link" data-action="detail" data-id="${t.id}">查看</button></td>
@@ -112,9 +113,9 @@ function renderTasks() {
       <div class="table-wrap">
         <table>
           <thead><tr>
-            <th>任务名称</th><th>报告期</th><th>数据口径</th><th>状态</th><th>创建时间</th><th>操作</th>
+            <th>任务名称</th><th>报告年度</th><th>贷款类型</th><th>贷款地区</th><th>状态</th><th>创建时间</th><th>操作</th>
           </tr></thead>
-          <tbody>${rows || '<tr><td colspan="6" class="empty">暂无数据</td></tr>'}</tbody>
+          <tbody>${rows || '<tr><td colspan="7" class="empty">暂无数据</td></tr>'}</tbody>
         </table>
       </div>
       ${renderPagination('taskPagination', page, totalPages, total)}
@@ -177,8 +178,9 @@ function renderTaskDetail() {
     <div class="breadcrumb"><a href="#" data-nav="tasks">压测任务</a> / ${t.taskName}</div>
     <div class="card">
       <div class="desc-grid">
-        <div class="desc-item"><span class="k">报告期</span><span>${t.reportPeriodStart} ~ ${t.reportPeriodEnd}</span></div>
-        <div class="desc-item"><span class="k">数据口径</span><span>${t.dataCaliber || '-'}</span></div>
+        <div class="desc-item"><span class="k">报告年度</span><span>${t.reportYear || '-'}</span></div>
+        <div class="desc-item"><span class="k">贷款类型</span><span>${t.loanType === 'CORPORATE' ? '对公' : t.loanType === 'PERSONAL' ? '个人' : '-'}</span></div>
+        <div class="desc-item"><span class="k">贷款地区</span><span>${t.loanRegion === 'DOMESTIC' ? '境内' : t.loanRegion === 'OVERSEAS' ? '境外' : '-'}</span></div>
         <div class="desc-item"><span class="k">状态</span><span>${tag(t.status, STATUS_MAP)}</span></div>
         <div class="desc-item"><span class="k">任务说明</span><span>${t.description || '-'}</span></div>
       </div>
@@ -418,10 +420,25 @@ function bindPageEvents() {
 
 function openModal() {
   document.getElementById('modalCreate').classList.add('show');
-  ['f_name', 'f_start', 'f_end', 'f_caliber', 'f_desc'].forEach((id) => {
+  const yearSelect = document.getElementById('f_year');
+  if (yearSelect && !yearSelect.options.length) {
+    for (let y = 2026; y <= 2099; y += 1) {
+      const opt = document.createElement('option');
+      opt.value = String(y);
+      opt.textContent = String(y);
+      yearSelect.appendChild(opt);
+    }
+  }
+  ['f_name', 'f_desc'].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.value = '';
   });
+  const yearEl = document.getElementById('f_year');
+  const loanTypeEl = document.getElementById('f_loan_type');
+  const loanRegionEl = document.getElementById('f_loan_region');
+  if (yearEl) yearEl.value = '2026';
+  if (loanTypeEl) loanTypeEl.value = 'CORPORATE';
+  if (loanRegionEl) loanRegionEl.value = 'DOMESTIC';
 }
 
 function closeModal() {
@@ -431,9 +448,9 @@ function closeModal() {
 function submitCreateTask() {
   const r = createTask({
     taskName: document.getElementById('f_name').value.trim(),
-    reportPeriodStart: document.getElementById('f_start').value,
-    reportPeriodEnd: document.getElementById('f_end').value,
-    dataCaliber: document.getElementById('f_caliber').value.trim(),
+    reportYear: document.getElementById('f_year').value,
+    loanType: document.getElementById('f_loan_type').value,
+    loanRegion: document.getElementById('f_loan_region').value,
     description: document.getElementById('f_desc').value.trim(),
   });
   if (!r.ok) {

@@ -86,9 +86,9 @@ async function main() {
     await page.click('button:has-text("新建任务")');
     await page.waitForSelector('.task-flow-card');
     await page.fill('#d_taskName', taskName);
-    await page.fill('#d_start', '2025-01-01');
-    await page.fill('#d_end', '2025-03-31');
-    await page.selectOption('#d_caliber', '合并报表');
+    await page.selectOption('#d_reportYear', '2026');
+    await page.selectOption('#d_loanType', 'CORPORATE');
+    await page.selectOption('#d_loanRegion', 'DOMESTIC');
     await page.click('.task-flow-card .btn-primary');
     await expectToastText(page, '创建');
     ok('新建任务');
@@ -110,23 +110,19 @@ async function main() {
       await expectToastText(page, '删除');
       ok('删除无法处理公司（行业未映射）');
     }
-    await page.click('button:has-text("下一步：确认清单")');
-    await expectToastText(page, '清单已确认');
-    ok('确认清单');
+    if (await page.locator('button:has-text("导入处理结果")').isVisible()) {
+      await page.click('button:has-text("导入处理结果")');
+      await page.click('button:has-text("选择 Excel 文件")');
+      await page.click('#modalDataProcessImport .btn-primary');
+      await waitToast(page, '导入', 5000);
+      ok('导入处理结果');
+    }
+    if (await page.locator('.bank-basic-info-section').isVisible()) ok('参试银行基础信息表已展示');
 
-    await page.click('button:has-text("计算行业平均值")');
-    await waitToast(page, '填充');
-    await page.click('button:has-text("填充数据到样本")');
-    await waitToast(page, '场景压测');
-    await page.click('button:has-text("下一步：进入场景压测")');
-    await waitToast(page, '场景压测');
-    ok('行业均值计算、填充并进入场景压测');
-    await page.click('button:has-text("调取信贷系统")');
-    await waitToast(page, '信贷');
-    await page.click('button:has-text("调取ECL系统")');
-    await waitToast(page, 'ECL');
-    ok('调取信贷 + ECL');
-
+    await page.click('[data-nav-page="stress-trans"]');
+    await page.click('button:has-text("新建压测任务")');
+    await page.click('#modalCreateStressJob .btn-primary');
+    await waitToast(page, '压测', 8000);
     await page.click('button:has-text("执行压测")');
     await waitToast(page, '完成', 8000);
     ok('执行压测 → 已完成');
@@ -147,7 +143,7 @@ async function main() {
     else fail('导出记录', '未找到记录');
 
     // 配置页导航
-    for (const p of ['factors', 'scenarios', 'mappings', 'results']) {
+    for (const p of ['factors', 'mappings', 'results']) {
       await page.click(`#menu a[data-page="${p}"]`);
       await page.waitForTimeout(200);
       ok(`菜单切换: ${p}`);

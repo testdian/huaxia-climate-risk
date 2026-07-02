@@ -85,18 +85,70 @@ window.CRST_CARBON = (function () {
   const TAX_RATE = 0.75;
   const HIGH_CARBON_CATEGORIES = ['电力', '建材', '钢铁', '石化', '化工', '造纸', '航空', '有色'];
 
+  /** 细分测试行业 → 排放因子编码（行业甄别后） */
+  const TEST_INDUSTRY_FACTOR_CODES = {
+    平板玻璃: 'EMISSION_C3041_B',
+    '平板玻璃（仅浮法）': 'EMISSION_C3041_A',
+    开采原油加工炼化: 'EMISSION_C2511_A',
+    采购原油加工炼化: 'EMISSION_C2511_B',
+    '造纸（生活用纸）': 'EMISSION_PAPER_A',
+    '造纸（其他）': 'EMISSION_PAPER_B',
+    机场企业: 'EMISSION_G5631',
+    机场: 'EMISSION_G5631',
+  };
+
+  function normalizeFactorLib(factorLibrary) {
+    return (factorLibrary || INDUSTRY_EMISSION_FACTORS).map((f) => ({
+      code: f.code || f.factorCode,
+      name: f.name || f.factorName,
+      industry: f.industry,
+      subType: f.subType,
+      gbCode: f.gbCode,
+      value: f.value ?? f.factorValue,
+      unit: f.unit,
+      status: f.status,
+    })).filter((f) => f.code && f.status !== 'DISABLED');
+  }
+
+  function resolveRecordIndustryMajor(record) {
+    const IS = typeof window !== 'undefined' ? window.CRST_INDUSTRY_SELECTOR : null;
+    if (IS?.resolveTestIndustryMajor) {
+      return IS.resolveTestIndustryMajor(record.standardIndustry, record.gbIndustryCode);
+    }
+    return record.standardIndustry || '';
+  }
+
   function findEmissionFactor(record, factorLibrary) {
+    const lib = normalizeFactorLib(factorLibrary);
+    const pool = lib.length ? lib : INDUSTRY_EMISSION_FACTORS;
     if (record.emissionFactorCode) {
-      const f = (factorLibrary || INDUSTRY_EMISSION_FACTORS).find((x) => x.code === record.emissionFactorCode);
+      const f = pool.find((x) => (x.code || x.factorCode) === record.emissionFactorCode);
+      if (f) return f;
+    }
+    const granularCode = TEST_INDUSTRY_FACTOR_CODES[record.standardIndustry];
+    if (granularCode) {
+      const f = pool.find((x) => (x.code || x.factorCode) === granularCode);
       if (f) return f;
     }
     if (record.gbIndustryCode) {
-      const f = INDUSTRY_EMISSION_FACTORS.find((x) => x.gbCode === record.gbIndustryCode);
-      if (f) return f;
+      const gbMatches = pool.filter((x) => x.gbCode === record.gbIndustryCode);
+      if (gbMatches.length === 1) return gbMatches[0];
+      if (gbMatches.length > 1 && record.standardIndustry) {
+        const subHit = gbMatches.find((x) => x.subType && record.standardIndustry.includes(String(x.subType).slice(0, 2)));
+        if (subHit) return subHit;
+      }
+      if (gbMatches.length > 1) return gbMatches[0];
     }
-    const ind = record.standardIndustry;
-    const f = INDUSTRY_EMISSION_FACTORS.find((x) => x.industry === ind);
-    return f || INDUSTRY_EMISSION_FACTORS.find((x) => x.code === 'EMISSION_CHEM_O');
+    const major = resolveRecordIndustryMajor(record);
+    if (major) {
+      const majorMatches = pool.filter((x) => x.industry === major);
+      if (majorMatches.length === 1) return majorMatches[0];
+      if (majorMatches.length > 1 && record.gbIndustryCode) {
+        const gbHit = majorMatches.find((x) => x.gbCode === record.gbIndustryCode);
+        if (gbHit) return gbHit;
+      }
+    }
+    return pool.find((x) => (x.code || x.factorCode) === 'EMISSION_CHEM_O') || pool[0];
   }
 
   /** 企业碳排放因子 = 基期排放量 / 营业收入（百万元） */
@@ -105,13 +157,12 @@ window.CRST_CARBON = (function () {
     return baseEmission / revenue;
   }
 
-  /** t 期碳排放量（吨） */
-  function calcEmission(revenue, emissionFactor, record) {
+  function calcEmission(revenue, emissionFactor, record, factorLibrary) {
     if (record.baseCarbonEmission != null && record.basePeriodRevenue) {
       const ef = companyEmissionFactor(record.baseCarbonEmission, record.basePeriodRevenue);
       return revenue * ef;
     }
-    const f = findEmissionFactor(record);
+    const f = emissionFactor || findEmissionFactor(record, factorLibrary);
     if (!f) return 0;
     if (f.unit === 'tCO2e/万人次' && record.passengerThroughput) {
       return record.passengerThroughput * f.value;
@@ -123,18 +174,26 @@ window.CRST_CARBON = (function () {
   function calcCarbonCost(emissionTon, freeQuotaRatio, carbonPriceYuan, record) {
     const payableRatio = 1 - freeQuotaRatio;
     let price = carbonPriceYuan;
-    const ind = record.standardIndustry || findEmissionFactor(record)?.industry;
+    const ind = resolveRecordIndustryMajor(record) || findEmissionFactor(record, options?.factorLibrary)?.industry;
     const ccusEligible = CCUS_INDUSTRIES.includes(ind) && record.baseNetProfitPositive !== false;
     if (ccusEligible && price >= CCUS_PRICE_CAP) price = CCUS_PRICE_CAP;
     return (emissionTon * payableRatio * price) / 10000;
   }
 
+  /** 线性插值：起始年—结束年免费配额 */
+  function interpolateQuotaRange(startYear, endYear, quotaStart, quotaEnd, testYear) {
+    if (!Number.isFinite(startYear) || !Number.isFinite(endYear) || startYear === endYear) {
+      return quotaStart;
+    }
+    if (testYear <= startYear) return quotaStart;
+    if (testYear >= endYear) return quotaEnd;
+    const t = (testYear - startYear) / (endYear - startYear);
+    return quotaStart + t * (quotaEnd - quotaStart);
+  }
+
   /** 线性插值 2025-2040 免费配额 */
   function interpolateQuota(scenario, testYear) {
-    if (testYear <= 2025) return scenario.freeQuota2025;
-    if (testYear >= 2040) return scenario.freeQuota2040;
-    const t = (testYear - 2025) / (2040 - 2025);
-    return scenario.freeQuota2025 + t * (scenario.freeQuota2040 - scenario.freeQuota2025);
+    return interpolateQuotaRange(2025, 2040, scenario.freeQuota2025, scenario.freeQuota2040, testYear);
   }
 
   function interpolateCarbonPrice(scenario, testYear) {
@@ -150,19 +209,19 @@ window.CRST_CARBON = (function () {
   function runCompanyStress(record, scenarioCode, options) {
     const scenario = TRANSITION_SCENARIOS[scenarioCode] || TRANSITION_SCENARIOS.BASELINE;
     const testYear = options?.testYear ?? 2040;
-    const revenueGrowth = options?.revenueGrowth ?? 0.02;
+    const revenueGrowth = options?.revenueGrowth ?? options?.industryGrowthRate ?? 0.02;
 
     const revenue0 = record.revenue ?? record.avgRevenue ?? 100000;
     let revenue = revenue0;
     for (let y = 2026; y <= testYear; y++) revenue *= 1 + revenueGrowth;
 
-    const emission = calcEmission(revenue, null, record);
-    const freeQuota = interpolateQuota(scenario, testYear);
-    const carbonPrice = interpolateCarbonPrice(scenario, testYear);
+    const emission = calcEmission(revenue, null, record, options?.factorLibrary);
+    const freeQuota = options?.freeQuotaRatio ?? interpolateQuota(scenario, testYear);
+    const carbonPrice = options?.carbonPrice ?? interpolateCarbonPrice(scenario, testYear);
     const carbonCost = calcCarbonCost(emission, freeQuota, carbonPrice, record);
 
     const costIncomeRatio = record.costIncomeRatio ?? 0.85;
-    const isHighCarbon = HIGH_CARBON_CATEGORIES.includes(record.standardIndustry);
+    const isHighCarbon = HIGH_CARBON_CATEGORIES.includes(resolveRecordIndustryMajor(record));
     const operatingExpense = isHighCarbon
       ? revenue * costIncomeRatio + carbonCost
       : revenue * costIncomeRatio;
@@ -193,7 +252,8 @@ window.CRST_CARBON = (function () {
       eclAfter: Math.round(eclAfter),
       impactRate: Math.round(impactRate * 10000) / 10000,
       defaultFlag,
-      emissionFactorUsed: findEmissionFactor(record)?.code,
+      emissionFactorUsed: findEmissionFactor(record, options?.factorLibrary)?.code
+        || findEmissionFactor(record, options?.factorLibrary)?.factorCode,
     };
   }
 
@@ -211,6 +271,7 @@ window.CRST_CARBON = (function () {
       factorCode: f.code,
       factorName: f.name,
       industry: f.industry,
+      subType: f.subType,
       scenarioType: 'EMISSION',
       factorValue: f.value,
       unit: f.unit,
@@ -283,10 +344,17 @@ window.CRST_CARBON = (function () {
     findEmissionFactor,
     calcEmission,
     calcCarbonCost,
+    interpolateQuota,
+    interpolateQuotaRange,
+    interpolateCarbonPrice,
     runCompanyStress,
     buildFactorLibraryRows,
     buildScenarioRows,
     buildGbMappings,
-    isHighCarbonIndustry: (ind) => HIGH_CARBON_CATEGORIES.includes(ind),
+    isHighCarbonIndustry: (ind, gbCode) => {
+      const IS = typeof window !== 'undefined' ? window.CRST_INDUSTRY_SELECTOR : null;
+      const major = IS?.resolveTestIndustryMajor ? IS.resolveTestIndustryMajor(ind, gbCode) : ind;
+      return HIGH_CARBON_CATEGORIES.includes(major);
+    },
   };
 })();
