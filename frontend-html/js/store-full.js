@@ -175,6 +175,8 @@ window.CRST_STORE = (function () {
           const tier = c.defaultTier || 0;
           const defaultFlag = (() => {
             if (tier <= 0) return false;
+            if (sc.code === 'BASELINE' && tier >= 2 && y >= 2030) return true;
+            if (sc.code === 'BASELINE' && tier >= 1 && y >= 2036) return true;
             if (sc.code === 'ORDERLY_TRANSITION' && tier >= 2 && y >= 2028) return true;
             if (sc.code === 'GREENHOUSE_WORLD' && tier >= 2 && y >= 2028) return true;
             if (sc.code === 'GREENHOUSE_WORLD' && tier >= 1 && y >= 2032) return true;
@@ -278,6 +280,7 @@ window.CRST_STORE = (function () {
       regulatoryReportGeneratedAt: '2025-06-03 19:15:00',
       createdAt: '2025-06-01 10:00:00',
       updatedAt: '2025-06-03 18:00:00',
+      updatedBy: '总行管理员',
     },
     {
       id: 2,
@@ -296,6 +299,7 @@ window.CRST_STORE = (function () {
       syncStats: { total: 45, success: 43, fail: 2 },
       createdAt: '2025-06-03 11:20:00',
       updatedAt: '2025-06-04 09:10:00',
+      updatedBy: '总行管理员',
     },
     {
       id: 3,
@@ -310,6 +314,7 @@ window.CRST_STORE = (function () {
       status: 'DRAFT',
       createdAt: '2025-06-04 08:00:00',
       updatedAt: '2025-06-04 08:00:00',
+      updatedBy: '总行管理员',
     },
     {
       id: 4,
@@ -333,6 +338,7 @@ window.CRST_STORE = (function () {
       regulatoryReportGeneratedAt: '2025-05-29 11:20:00',
       createdAt: '2025-05-20 09:00:00',
       updatedAt: '2025-05-29 11:20:00',
+      updatedBy: '总行管理员',
     },
     {
       id: 5,
@@ -353,6 +359,7 @@ window.CRST_STORE = (function () {
       dataProcessCompletedAt: '2025-06-04 15:30:00',
       createdAt: '2025-06-04 10:00:00',
       updatedAt: '2025-06-04 15:30:00',
+      updatedBy: '总行管理员',
     },
     {
       id: 6,
@@ -372,6 +379,7 @@ window.CRST_STORE = (function () {
       adminConfirmedAt: '2025-06-04 16:00:00',
       createdAt: '2025-06-04 13:00:00',
       updatedAt: '2025-06-04 16:10:00',
+      updatedBy: '总行管理员',
     },
   ];
 
@@ -628,13 +636,16 @@ window.CRST_STORE = (function () {
     },
   ];
 
-  function addLog(taskId, action) {
+  function addLog(taskId, action, operator) {
+    const op = operator || '总行管理员';
     if (!taskLogs[taskId]) taskLogs[taskId] = [];
     taskLogs[taskId].unshift({
       time: new Date().toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-'),
       action,
-      operator: '总行管理员',
+      operator: op,
     });
+    const task = tasks.find((t) => t.id === taskId);
+    if (task) task.updatedBy = op;
   }
 
   function getPublishedScenarioVersion() {
@@ -721,23 +732,24 @@ window.CRST_STORE = (function () {
   let stressJobs = [
     {
       id: 101,
-      methodKey: 'trans',
-      jobName: '2025Q1现有政策压测（引用）',
-      jobCode: 'ST-TRANS-20250601001',
+      methodKey: 'pipeline',
+      jobName: '2025Q1三情景气候压测（引用）',
+      jobCode: 'ST-JOB-20250601001',
       dataSource: 'REF',
       sourceTaskId: 1,
       sourceTaskName: '2025年一季度气候风险压测',
       recordCount: 128,
-      usableCount: 125,
+      usableCount: 128,
       reportPeriodStart: '2025-01-01',
-      reportPeriodEnd: '2025-03-31',
+      reportPeriodEnd: '2025-12-31',
       dataCaliber: '两种口径均输出',
       status: 'COMPLETED',
       factorVersion: 'F-V1.0',
       scenarioVersion: 'S-V1.0',
       creditFetched: true,
       eclFetched: true,
-      selectedScenarioCodes: ['BASELINE'],
+      finTransDone: true,
+      selectedScenarioCodes: ['BASELINE', 'GREENHOUSE_WORLD', 'ORDERLY_TRANSITION'],
       createdAt: '2025-06-02 17:00:00',
       updatedAt: '2025-06-03 18:00:00',
     },
@@ -938,6 +950,10 @@ window.CRST_STORE = (function () {
     },
   ];
 
+  stressJobs.forEach((j) => {
+    if (j.status === 'COMPLETED' || j.creditFetched) j.finTransDone = true;
+  });
+
   const _baseRecords = recordsByTask[1] || [];
   const _importCompanies = DEMO_STRESS_COMPANIES.slice(0, 10);
   let stressRecordsByJob = {
@@ -972,9 +988,18 @@ window.CRST_STORE = (function () {
     302: eclByTask[4] ? JSON.parse(JSON.stringify(eclByTask[4])) : [],
   };
   let stressResultsByJob = {
-    101: buildStressDemoResults({ companies: DEMO_STRESS_COMPANIES, scenarioCodes: ['BASELINE'] }),
+    101: buildStressDemoResults({
+      companies: DEMO_STRESS_COMPANIES,
+      scenarioCodes: ['BASELINE', 'GREENHOUSE_WORLD', 'ORDERLY_TRANSITION'],
+      impactBase: 0.058,
+    }),
     102: buildStressDemoResults({ companies: _importCompanies, scenarioCodes: ['BASELINE'], seed: 5, impactBase: 0.065 }),
-    103: buildStressDemoResults({ companies: DEMO_STRESS_COMPANIES.slice(0, 10), seed: 2, impactBase: 0.055 }),
+    103: buildStressDemoResults({
+      companies: DEMO_STRESS_COMPANIES.slice(0, 10),
+      scenarioCodes: ['BASELINE', 'GREENHOUSE_WORLD', 'ORDERLY_TRANSITION'],
+      seed: 2,
+      impactBase: 0.055,
+    }),
     201: buildStressDemoResults({ companies: DEMO_STRESS_COMPANIES, scenarioCodes: ['GREENHOUSE_WORLD'] }),
     202: buildStressDemoResults({ companies: DEMO_STRESS_COMPANIES.slice(0, 10), scenarioCodes: ['GREENHOUSE_WORLD'], seed: 3 }),
     301: buildStressDemoResults({ companies: DEMO_STRESS_COMPANIES, scenarioCodes: ['ORDERLY_TRANSITION'] }),

@@ -94,7 +94,9 @@ async function main() {
     ok('新建任务');
     await page.waitForTimeout(500);
 
-    await page.click('.step-nav-item[data-step="1"]');
+    await page.click('.module-subnav-btn:has-text("财务数据")');
+    await page.click('button:has-text("同步贷款数据")');
+    await expectToastText(page, '贷款数据', 10000);
     await page.click('button:has-text("同步财务数据")');
     await expectToastText(page, '同步', 10000);
     ok('开始同步 → 待确认');

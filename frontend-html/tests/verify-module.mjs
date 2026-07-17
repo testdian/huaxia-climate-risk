@@ -111,6 +111,8 @@ try {
   await waitToast(page, '创建');
 
   await page.click('.module-subnav-btn:has-text("财务数据")');
+  await page.click('button:has-text("同步贷款数据")');
+  await waitToast(page, '贷款数据', 8000);
   await page.click('button:has-text("同步财务数据")');
   await waitToast(page, '同步完成', 8000);
   const disambigBtn = page.locator('button:has-text("行业甄别确认")');

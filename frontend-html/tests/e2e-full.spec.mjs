@@ -69,6 +69,8 @@ test.describe('气候风险压测完整版', () => {
     await expect(page.locator('.breadcrumb')).toContainText(taskName);
 
   await page.click('.module-subnav-btn:has-text("财务数据")');
+    await page.click('button:has-text("同步贷款数据")');
+    await page.waitForTimeout(1200);
     await page.click('button:has-text("同步财务数据")');
     await expect(page.locator('#toast')).toContainText('同步完成', { timeout: 5000 });
 
