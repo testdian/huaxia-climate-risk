@@ -18,6 +18,9 @@
   --spacing: 16px;
   --sidebar-width: 220px;
   --header-height: 56px;
+  --field-disabled-bg: #f5f5f5;
+  --field-disabled-color: rgba(0, 0, 0, 0.65);
+  --field-disabled-border: #d9d9d9;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -132,6 +135,17 @@ a:hover { color: var(--primary-hover); }
 }
 
 .btn-primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
+
+.btn-success {
+  background: var(--success);
+  color: var(--white);
+  border-color: var(--success);
+}
+
+.btn-success:hover {
+  background: #27a97f;
+  border-color: #27a97f;
+}
 
 .btn-default {
   background: var(--white);
@@ -448,6 +462,31 @@ body.app-body {
 .input::placeholder, .textarea::placeholder { color: var(--text-disabled); }
 
 .textarea { height: 80px; resize: vertical; padding: 8px 11px; }
+
+.input:disabled,
+.select:disabled,
+.textarea:disabled {
+  background-color: var(--field-disabled-bg);
+  color: var(--field-disabled-color);
+  border-color: var(--field-disabled-border);
+  cursor: not-allowed;
+  opacity: 1;
+  -webkit-text-fill-color: var(--field-disabled-color);
+}
+
+.select:disabled {
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.modal-bd.is-readonly .input:disabled,
+.modal-bd.is-readonly .select:disabled,
+.modal-bd.is-readonly .textarea:disabled {
+  background-color: var(--field-disabled-bg);
+  color: var(--field-disabled-color);
+  border-color: var(--field-disabled-border);
+  -webkit-text-fill-color: var(--field-disabled-color);
+}
 
 th, td { border: 1px solid var(--border); }
 

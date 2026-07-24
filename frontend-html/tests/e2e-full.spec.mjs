@@ -71,6 +71,8 @@ test.describe('气候风险压测完整版', () => {
   await page.click('.module-subnav-btn:has-text("财务数据")');
     await page.click('button:has-text("同步贷款数据")');
     await page.waitForTimeout(1200);
+    await page.click('button:has-text("同步格澜数据")');
+    await page.waitForTimeout(1200);
     await page.click('button:has-text("同步财务数据")');
     await expect(page.locator('#toast')).toContainText('同步完成', { timeout: 5000 });
 
@@ -115,18 +117,19 @@ test.describe('气候风险压测完整版', () => {
   test('基础配置 CRUD 抽检', async ({ page }) => {
     await page.click('#menu a[data-page="factors"]');
     await page.click('button:has-text("新增因子")');
-    await page.fill('#f_code', 'E2E_TEST_01');
     await page.fill('#f_name', 'E2E测试因子');
     await page.selectOption('#f_ind', '化工');
     await page.fill('#f_val', '0.05');
     await page.locator('#modalFactor .btn-primary').click();
     await expect(page.locator('#toast')).toContainText('新增', { timeout: 3000 });
-    await expect(page.locator('table')).toContainText('E2E_TEST_01');
+    await expect(page.locator('table')).toContainText('E2E测试因子');
 
     await page.click('#menu a[data-page="mappings"]');
     await page.click('button:has-text("新增映射")');
+    await page.fill('#m_gb', 'C9999');
     await page.fill('#m_api', 'E2E-行业');
     await page.fill('#m_std', '测试行业');
+    await page.fill('#m_test', 'E2E-测试类别');
     await page.locator('#modalMapping .btn-primary').click();
     await expect(page.locator('table')).toContainText('E2E-行业');
   });
@@ -152,7 +155,7 @@ test.describe('气候风险压测完整版', () => {
     await page.locator('.breadcrumb a').first().click();
     await expect(row.locator('button:has-text("删除")')).toBeVisible();
     await row.locator('button:has-text("删除")').click();
-    await page.click('#modalTaskDelete .btn-primary');
+    await page.click('#modalConfirmDelete .btn-primary');
     await expect(page.locator('table tbody')).not.toContainText(name, { timeout: 3000 });
   });
 });

@@ -30,33 +30,33 @@ window.CRST_CARBON = (function () {
 
   /** GB/T 4754 高碳行业分类 */
   const HIGH_CARBON_INDUSTRY_CLASS = [
-    { gbCode: 'D4411', name: '火力发电', category: '电力' },
-    { gbCode: 'D4412', name: '热电联产', category: '电力' },
-    { gbCode: 'D4420', name: '电力供应', category: '电力' },
-    { gbCode: 'C3011', name: '水泥制造', category: '建材' },
-    { gbCode: 'C3041', name: '平板玻璃制造', category: '建材' },
-    { gbCode: 'C3110', name: '炼铁', category: '钢铁' },
-    { gbCode: 'C3120', name: '炼钢', category: '钢铁' },
-    { gbCode: 'C3130', name: '钢压延加工', category: '钢铁' },
-    { gbCode: 'C3216', name: '铝冶炼', category: '有色' },
-    { gbCode: 'C3211', name: '铜冶炼', category: '有色' },
-    { gbCode: 'C2511', name: '原油加工及石油制品制造', category: '石化' },
-    { gbCode: 'C2611', name: '无机酸制造', category: '化工' },
-    { gbCode: 'C2614', name: '有机化学原料制造', category: '化工' },
-    { gbCode: 'C2621', name: '氮肥制造', category: '化工' },
-    { gbCode: 'C2631', name: '化学农药制造', category: '化工' },
-    { gbCode: 'C2651', name: '初级形态塑料及合成树脂制造', category: '化工' },
-    { gbCode: 'C2211', name: '木竹浆制造', category: '造纸' },
-    { gbCode: 'C2221', name: '机制纸及纸板制造', category: '造纸' },
-    { gbCode: 'G5611', name: '航空旅客运输', category: '航空' },
-    { gbCode: 'G5631', name: '机场', category: '航空' },
+    { gbCode: 'D4411', name: '火力发电', category: '电力', testIndustryCategory: '火力发电' },
+    { gbCode: 'D4412', name: '热电联产', category: '电力', testIndustryCategory: '热电联产' },
+    { gbCode: 'D4420', name: '电力供应', category: '电力', testIndustryCategory: '电力供应' },
+    { gbCode: 'C3011', name: '水泥制造', category: '建材', testIndustryCategory: '水泥制造' },
+    { gbCode: 'C3041', name: '平板玻璃制造', category: '建材', testIndustryCategory: '平板玻璃' },
+    { gbCode: 'C3110', name: '炼铁', category: '钢铁', testIndustryCategory: '钢铁' },
+    { gbCode: 'C3120', name: '炼钢', category: '钢铁', testIndustryCategory: '钢铁' },
+    { gbCode: 'C3130', name: '钢压延加工', category: '钢铁', testIndustryCategory: '钢铁' },
+    { gbCode: 'C3216', name: '铝冶炼', category: '有色', testIndustryCategory: '铝冶炼' },
+    { gbCode: 'C3211', name: '铜冶炼', category: '有色', testIndustryCategory: '铜冶炼' },
+    { gbCode: 'C2511', name: '原油加工及石油制品制造', category: '石化', testIndustryCategory: '采购原油加工炼化' },
+    { gbCode: 'C2611', name: '无机酸制造', category: '化工', testIndustryCategory: '基础化学原料制造' },
+    { gbCode: 'C2614', name: '有机化学原料制造', category: '化工', testIndustryCategory: '基础化学原料制造' },
+    { gbCode: 'C2621', name: '氮肥制造', category: '化工', testIndustryCategory: '肥料制造' },
+    { gbCode: 'C2631', name: '化学农药制造', category: '化工', testIndustryCategory: '农药制造' },
+    { gbCode: 'C2651', name: '初级形态塑料及合成树脂制造', category: '化工', testIndustryCategory: '其他化学产品制造' },
+    { gbCode: 'C2211', name: '木竹浆制造', category: '造纸', testIndustryCategory: '造纸（其他）' },
+    { gbCode: 'C2221', name: '机制纸及纸板制造', category: '造纸', testIndustryCategory: '造纸（生活用纸）' },
+    { gbCode: 'G5611', name: '航空旅客运输', category: '航空', testIndustryCategory: '航空客货运输' },
+    { gbCode: 'G5631', name: '机场', category: '航空', testIndustryCategory: '机场' },
   ];
 
   /** 转型情景：免费配额比例（文档表） */
   const TRANSITION_SCENARIOS = {
     BASELINE: {
       code: 'BASELINE',
-      name: '现有政策（基准）',
+      name: '现有政策',
       freeQuota2025: 1.0,
       freeQuota2040: 0.75,
       carbonPrice2025: 80,
@@ -279,6 +279,7 @@ window.CRST_CARBON = (function () {
       version: 'V2.0-行内方法',
       status: 'ENABLED',
       effectiveFrom: '2025-01-01',
+      updatedBy: '总行管理员',
       updatedAt: '2025-06-04',
     }));
   }
@@ -288,7 +289,7 @@ window.CRST_CARBON = (function () {
       {
         id: 1,
         scenarioCode: 'BASELINE',
-        scenarioName: '现有政策（基准）',
+        scenarioName: '现有政策',
         scenarioType: 'TRANSITION',
         formula: '碳排放费用_t = 碳排放量_t × (1 - 免费配额比例_t) × 碳价_t；营业支出_t = 营业收入_t × 成本收入比 + 碳排放费用_t',
         inputFields: 'revenue, industryEmissionFactor, freeQuotaRatio, carbonPrice, costIncomeRatio',
@@ -327,12 +328,16 @@ window.CRST_CARBON = (function () {
   function buildGbMappings() {
     return HIGH_CARBON_INDUSTRY_CLASS.map((c, i) => ({
       id: i + 1,
+      gbCode: c.gbCode,
+      gbIndustryName: c.name,
+      industryMajor: c.category,
+      testIndustryCategory: c.testIndustryCategory,
       apiIndustry: `${c.gbCode} ${c.name}`,
       standardIndustry: c.category,
-      gbCode: c.gbCode,
       mappingType: 'GB/T4754',
       status: 'ENABLED',
       version: 'V2.0-行内方法',
+      updatedBy: '总行管理员',
       updatedAt: '2025-06-04',
     }));
   }

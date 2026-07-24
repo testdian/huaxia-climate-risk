@@ -39,7 +39,6 @@ try {
     ['factors', '因子'],
     ['mappings', '映射'],
     ['airport-throughput', '机场吞吐量'],
-    ['menu-perms', '菜单权限'],
   ];
   for (const [p, hint] of pages) {
     const link = page.locator(`#menu a[data-page="${p}"], [data-nav-page="${p}"]`).first();
@@ -95,8 +94,8 @@ try {
   else fail('结果分析页缺少一键下发预警');
 
   await page.click('[data-nav-page="exports"]');
-  const b1 = await page.locator('.export-filter-bar .filter-actions button').nth(0).boundingBox();
-  const b2 = await page.locator('.export-filter-bar .filter-actions button').nth(1).boundingBox();
+  const b1 = await page.locator('.export-filter-bar .btn-primary').boundingBox();
+  const b2 = await page.locator('.export-filter-bar .btn-default').boundingBox();
   if (b1 && b2 && Math.abs(b1.y - b2.y) < 5) pass('导出记录筛选按钮同一行');
   else fail('导出记录筛选按钮未同一行');
 

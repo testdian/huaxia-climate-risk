@@ -140,6 +140,44 @@ window.CRST_STORE = (function () {
     };
   }
 
+  function demoNoFinInternalPdRecord(spec) {
+    const hasModel = spec.hasInternalRatingModel ?? (spec.id % 3 !== 0);
+    return {
+      id: spec.id,
+      companyName: spec.companyName,
+      customerId: spec.customerId,
+      creditCustomerNo: spec.customerId,
+      creditNo: spec.creditNo || `LN-202501-${String(spec.id).padStart(4, '0')}`,
+      unifiedSocialCreditCode: spec.unifiedSocialCreditCode || `9144030010000${String(spec.id).padStart(5, '0')}`,
+      branchName: spec.branchName,
+      branchCode: spec.branchCode,
+      loanRegion: 'DOMESTIC',
+      loanClassification: 'NORMAL',
+      pdValue: spec.pdValue ?? 0.03,
+      apiIndustry: spec.apiIndustry,
+      gbIndustryCode: spec.gbIndustryCode,
+      standardIndustry: spec.standardIndustry,
+      emissionFactorCode: `EMISSION_${spec.gbIndustryCode}`,
+      revenue: null,
+      totalAssets: null,
+      costIncomeRatio: null,
+      dataAvailability: 'NEED_AVG',
+      availabilityReason: '无财报',
+      dataSource: '接口原始',
+      reportMissing: true,
+      financialDataSynced: false,
+      prevStatus: 'NORMAL',
+      postStatus: 'NORMAL',
+      loanBalance: spec.loanBalance ?? 35000,
+      hasInternalRatingModel: hasModel,
+      internalPdSynced: true,
+      internalRatingModel: hasModel ? (spec.internalRatingModel || '对公内评-V2.1') : null,
+      baselinePd: hasModel ? (spec.baselinePd ?? 0.022) : null,
+      baselinePd0: hasModel ? null : (spec.baselinePd0 ?? 0.016),
+      baselineLgd0: hasModel ? null : (spec.baselineLgd0 ?? 0.4),
+    };
+  }
+
   function buildStressDemoResults(config) {
     const {
       companies = DEMO_STRESS_COMPANIES,
@@ -151,7 +189,7 @@ window.CRST_STORE = (function () {
       seed = 0,
     } = config || {};
     const allScenarios = [
-      { code: 'BASELINE', name: '现有政策（基准）', weight: 1 },
+      { code: 'BASELINE', name: '现有政策', weight: 1 },
       { code: 'GREENHOUSE_WORLD', name: '温室世界', weight: 1.28 },
       { code: 'ORDERLY_TRANSITION', name: '有序转型', weight: 1.52 },
     ];
@@ -274,6 +312,7 @@ window.CRST_STORE = (function () {
       syncStats: { total: 128, success: 125, fail: 3 },
       adminConfirmedAt: '2025-06-02 15:00:00',
       avgConfirmedAt: '2025-06-02 16:30:00',
+      internalPdDataSynced: true,
       creditFetched: true,
       eclFetched: true,
       riskWarningIssuedAt: '2025-06-03 19:00:00',
@@ -384,7 +423,48 @@ window.CRST_STORE = (function () {
   ];
 
   let recordsByTask = {
-    1: DEMO_STRESS_COMPANIES.map((c, i) => demoCompanyToFinancialRecord(c, i + 1)),
+    1: [
+      ...DEMO_STRESS_COMPANIES.map((c, i) => demoCompanyToFinancialRecord(c, i + 1)),
+      demoNoFinInternalPdRecord({
+        id: 20,
+        companyName: '华南物流仓储有限公司',
+        customerId: 'CUST-1020',
+        branchName: '广州分行',
+        branchCode: '4400',
+        standardIndustry: '交通运输',
+        gbIndustryCode: 'G5531',
+        apiIndustry: 'G5531 仓储物流',
+        baselinePd: 0.024,
+        loanBalance: 42000,
+      }),
+      demoNoFinInternalPdRecord({
+        id: 21,
+        companyName: '西部基建项目公司',
+        customerId: 'CUST-1021',
+        branchName: '成都分行',
+        branchCode: '5100',
+        standardIndustry: '建材',
+        gbIndustryCode: 'C3011',
+        apiIndustry: 'C3011 基建施工',
+        hasInternalRatingModel: false,
+        baselinePd0: 0.019,
+        baselineLgd0: 0.43,
+        loanBalance: 68000,
+      }),
+      demoNoFinInternalPdRecord({
+        id: 22,
+        companyName: '环渤海港口服务公司',
+        customerId: 'CUST-1022',
+        branchName: '天津分行',
+        branchCode: '1200',
+        standardIndustry: '交通运输',
+        gbIndustryCode: 'G5531',
+        apiIndustry: 'G5531 港口服务',
+        internalRatingModel: '对公内评-V3.0',
+        baselinePd: 0.017,
+        loanBalance: 55000,
+      }),
+    ],
     2: [
       { id: 4, companyName: '西南平板玻璃销售公司', customerId: 'CUST-2001', creditNo: 'LN-202402-0101', unifiedSocialCreditCode: '91510100100000004M', branchName: '成都分行', branchCode: '5100', loanRegion: 'DOMESTIC', loanClassification: 'NORMAL', pdValue: 0.021, apiIndustry: 'C3041 平板玻璃制造', gbIndustryCode: 'C3041', standardIndustry: '平板玻璃', ambiguityCode: 'HY-01', ambiguityConfirmed: false, revenue: 56000, costIncomeRatio: 0.85, dataAvailability: 'USABLE', availabilityReason: '待行业甄别', dataSource: '接口原始' },
       { id: 5, companyName: '华东原油加工有限公司', customerId: 'CUST-2002', creditNo: 'LN-202402-0102', unifiedSocialCreditCode: '91440300100000005N', branchName: '深圳分行', branchCode: '4403', loanRegion: 'DOMESTIC', loanClassification: 'NORMAL', pdValue: 0.015, apiIndustry: 'C2511 原油加工及石油制品制造', gbIndustryCode: 'C2511', standardIndustry: '开采原油加工炼化', ambiguityCode: 'HY-02', ambiguityConfirmed: false, revenue: 210000, costIncomeRatio: 0.91, dataAvailability: 'USABLE', availabilityReason: '待行业甄别', dataSource: '接口原始' },
@@ -501,9 +581,9 @@ window.CRST_STORE = (function () {
     });
     mappings = [
       ...window.CRST_CARBON.buildGbMappings(),
-      { id: 900, apiIndustry: '制造业-化工', standardIndustry: '化工', gbCode: 'C2614', mappingType: '多对一', status: 'ENABLED', version: 'V2.0-行内方法', updatedAt: '2025-06-04' },
-      { id: 901, apiIndustry: '制造业-钢铁', standardIndustry: '钢铁', gbCode: 'C3110', mappingType: '多对一', status: 'ENABLED', version: 'V2.0-行内方法', updatedAt: '2025-06-04' },
-      { id: 902, apiIndustry: '电力热力', standardIndustry: '电力', gbCode: 'D4411', mappingType: '多对一', status: 'ENABLED', version: 'V2.0-行内方法', updatedAt: '2025-06-04' },
+      { id: 900, apiIndustry: '制造业-化工', gbCode: 'C2614', gbIndustryName: '有机化学原料制造', industryMajor: '化工', testIndustryCategory: '基础化学原料制造', standardIndustry: '化工', mappingType: '多对一', status: 'ENABLED', version: 'V2.0-行内方法', updatedBy: '总行管理员', updatedAt: '2025-06-04' },
+      { id: 901, apiIndustry: '制造业-钢铁', gbCode: 'C3110', gbIndustryName: '炼铁', industryMajor: '钢铁', testIndustryCategory: '钢铁', standardIndustry: '钢铁', mappingType: '多对一', status: 'ENABLED', version: 'V2.0-行内方法', updatedBy: '总行管理员', updatedAt: '2025-06-04' },
+      { id: 902, apiIndustry: '电力热力', gbCode: 'D4411', gbIndustryName: '火力发电', industryMajor: '电力', testIndustryCategory: '火力发电', standardIndustry: '电力', mappingType: '多对一', status: 'ENABLED', version: 'V2.0-行内方法', updatedBy: '总行管理员', updatedAt: '2025-06-04' },
     ];
   }
 
@@ -524,7 +604,8 @@ window.CRST_STORE = (function () {
       fieldKeys: [],
       operator: '总行管理员',
       exportedAt: '2025-06-03 18:45:00',
-      downloadFileName: '压力测试结果汇总表（现有政策）_20250603184500.xlsx',
+      downloadFileName: '压力测试结果汇总表（现有政策）.xlsx',
+      moduleName: '压测结果分析',
     },
     {
       id: 2,
@@ -542,7 +623,8 @@ window.CRST_STORE = (function () {
       fieldKeys: [],
       operator: '总行管理员',
       exportedAt: '2025-06-03 19:00:00',
-      downloadFileName: '违约客户监控_2025年一季度气候风险压测_20250603190000.xlsx',
+      downloadFileName: '违约客户监控 — 行业新增不良/违约户.xlsx',
+      moduleName: '压测结果分析',
     },
     {
       id: 3,
@@ -560,7 +642,8 @@ window.CRST_STORE = (function () {
       fieldKeys: [],
       operator: '总行管理员',
       exportedAt: '2025-06-03 19:15:00',
-      downloadFileName: '2025年一季度气候风险压测20250603191500.xlsx',
+      downloadFileName: '外部监管报送.xlsx',
+      moduleName: '压测结果分析',
     },
     {
       id: 4,
@@ -578,7 +661,8 @@ window.CRST_STORE = (function () {
       fieldKeys: ['companyName', 'scenarioName', 'testYear', 'impactRate', 'carbonCost', 'eclBefore', 'eclAfter', 'defaultFlag'],
       operator: '总行管理员',
       exportedAt: '2025-06-03 19:05:00',
-      downloadFileName: '2025年一季度气候风险压测20250603190500.xlsx',
+      downloadFileName: '压测结果明细.xlsx',
+      moduleName: '压测结果分析',
     },
     {
       id: 5,
@@ -596,7 +680,8 @@ window.CRST_STORE = (function () {
       fieldKeys: [],
       operator: '总行管理员',
       exportedAt: '2025-05-29 10:30:00',
-      downloadFileName: '压力测试结果汇总表（现有政策）_20250529103000.xlsx',
+      downloadFileName: '压力测试结果汇总表（现有政策）.xlsx',
+      moduleName: '压测结果分析',
     },
     {
       id: 6,
@@ -614,7 +699,8 @@ window.CRST_STORE = (function () {
       fieldKeys: ['companyName', 'scenarioName', 'testYear', 'impactRate', 'carbonCost', 'eclBefore', 'eclAfter', 'defaultFlag'],
       operator: '总行管理员',
       exportedAt: '2025-06-04 15:00:00',
-      downloadFileName: '高耗能行业现有政策压测20250604150000.xlsx',
+      downloadFileName: '压测结果明细.xlsx',
+      moduleName: '情景分析',
     },
     {
       id: 7,
@@ -632,7 +718,8 @@ window.CRST_STORE = (function () {
       fieldKeys: [],
       operator: '总行管理员',
       exportedAt: '2025-06-04 09:20:00',
-      downloadFileName: '高耗能行业专项压测20250604092000.xlsx',
+      downloadFileName: '全部财务同步数据.xlsx',
+      moduleName: '数据处理',
     },
   ];
 
@@ -1045,12 +1132,15 @@ window.CRST_STORE = (function () {
   };
 
   function addStressJobLog(jobId, action, operator) {
+    const op = operator || '总行管理员';
     if (!stressJobLogs[jobId]) stressJobLogs[jobId] = [];
     stressJobLogs[jobId].unshift({
       time: new Date().toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-'),
       action,
-      operator: operator || '总行管理员',
+      operator: op,
     });
+    const job = stressJobs.find((j) => j.id === jobId);
+    if (job) job.updatedBy = op;
   }
 
   function allocStressJobId() {

@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>气候风险压测（完整版）- 华夏银行绿金系统</title>
-  <link rel="stylesheet" href="css/theme.css" />
-  <link rel="stylesheet" href="css/full-ext.css?v=20260718u" />
+  <link rel="stylesheet" href="css/theme.css?v=20260726c" />
+  <link rel="stylesheet" href="css/full-ext.css?v=20260726e" />
 </head>
 <body class="app-body">
   <div class="app" id="appRoot">
@@ -29,16 +29,16 @@
               <span class="menu-level-text">情景分析</span>
             </button>
           </li>
+          <li class="menu-section menu-section--nav" data-section="results">
+            <button type="button" class="menu-level-1 menu-level-1--nav" data-nav-page="results" title="压测结果分析">
+              <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 20V10M12 20V4M6 20v-6"/></svg></span>
+              <span class="menu-level-text">压测结果分析</span>
+            </button>
+          </li>
           <li class="menu-section menu-section--nav" data-section="stress-fin-trans">
             <button type="button" class="menu-level-1 menu-level-1--nav" data-nav-page="stress-fin-trans" title="财务传导">
               <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4"/></svg></span>
               <span class="menu-level-text">财务传导</span>
-            </button>
-          </li>
-          <li class="menu-section menu-section--nav" data-section="stress-pd-lgd">
-            <button type="button" class="menu-level-1 menu-level-1--nav" data-nav-page="stress-pd-lgd" title="PD/LGD计算">
-              <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19h16M4 15l4-8 4 5 4-9 4 12"/></svg></span>
-              <span class="menu-level-text">PD/LGD计算</span>
             </button>
           </li>
           <li class="menu-section menu-section--nav" data-section="stress-npl-prov">
@@ -47,10 +47,10 @@
               <span class="menu-level-text">不良和拨备计算</span>
             </button>
           </li>
-          <li class="menu-section menu-section--nav" data-section="results">
-            <button type="button" class="menu-level-1 menu-level-1--nav" data-nav-page="results" title="压测结果分析">
-              <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 20V10M12 20V4M6 20v-6"/></svg></span>
-              <span class="menu-level-text">压测结果分析</span>
+          <li class="menu-section menu-section--nav" data-section="stress-pd-lgd">
+            <button type="button" class="menu-level-1 menu-level-1--nav" data-nav-page="stress-pd-lgd" title="PD/LGD计算">
+              <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19h16M4 15l4-8 4 5 4-9 4 12"/></svg></span>
+              <span class="menu-level-text">PD/LGD计算</span>
             </button>
           </li>
           <li class="menu-section menu-section--nav" data-section="exports">
@@ -77,17 +77,7 @@
                 <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 16l20-6-20-6v5l10 1-10 1v5z"/><path d="M8 18h8"/></svg></span>
                 <span class="menu-text">机场吞吐量维护</span>
               </a></li>
-              <li><a data-page="calc-doc" title="计算方法说明">
-                <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg></span>
-                <span class="menu-text">计算方法说明</span>
-              </a></li>
             </ul>
-          </li>
-          <li class="menu-section menu-section--nav" data-section="perms">
-            <button type="button" class="menu-level-1 menu-level-1--nav" data-nav-page="menu-perms" title="菜单权限">
-              <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15a3 3 0 100-6 3 3 0 000 6z"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></span>
-              <span class="menu-level-text">菜单权限</span>
-            </button>
           </li>
         </ul>
       </nav>
@@ -129,61 +119,31 @@
 
   <!-- 因子表单 -->
   <div class="modal-mask" id="modalFactor">
-    <div class="modal modal-lg">
+    <div class="modal">
       <div class="modal-hd" id="modalTitle">因子</div>
       <div class="modal-bd">
-        <div class="form-grid-2">
-          <div class="form-row">
-            <label><span class="req">*</span>因子编码</label>
-            <input class="input" id="f_code" placeholder="如 TRANS_CHEM_01" />
-          </div>
-          <div class="form-row">
-            <label><span class="req">*</span>因子名称</label>
-            <input class="input" id="f_name" />
-          </div>
-          <div class="form-row">
-            <label>国标代码</label>
-            <input class="input" id="f_gb" placeholder="如 C2614" />
-          </div>
-          <div class="form-row">
-            <label>行业大类</label>
-            <select class="select" id="f_ind">
-              <option value="">请选择测试行业大类</option>
-            </select>
-          </div>
-          <div class="form-row">
-            <label>细分类型</label>
-            <input class="input" id="f_subType" placeholder="如 有机化学原料" />
-          </div>
-          <div class="form-row">
-            <label>场景类型</label>
-            <select class="select" id="f_type">
-              <option value="TRANSITION">转型风险 TRANSITION</option>
-              <option value="PHYSICAL">物理风险 PHYSICAL</option>
-              <option value="COMPREHENSIVE">综合风险 COMPREHENSIVE</option>
-            </select>
-          </div>
-          <div class="form-row">
-            <label>因子值</label>
-            <input class="input" id="f_val" type="number" step="0.01" />
-          </div>
-          <div class="form-row">
-            <label>单位</label>
-            <select class="select" id="f_unit">
-              <option value="ratio">ratio</option>
-              <option value="percent">percent</option>
-              <option value="tCO2e/百万元">tCO2e/百万元</option>
-              <option value="tCO2e/万人次">tCO2e/万人次</option>
-            </select>
-          </div>
-          <div class="form-row">
-            <label>版本</label>
-            <input class="input" id="f_version" placeholder="如 V2.0-行内方法" />
-          </div>
-          <div class="form-row">
-            <label>生效日期</label>
-            <input class="input" id="f_effectiveFrom" type="date" />
-          </div>
+        <div class="form-row">
+          <label><span class="req">*</span>因子名称</label>
+          <input class="input" id="f_name" placeholder="如 化工-有机化学原料" />
+        </div>
+        <div class="form-row">
+          <label><span class="req">*</span>数值</label>
+          <input class="input" id="f_val" type="number" step="0.0001" placeholder="如 150.2545" />
+        </div>
+        <div class="form-row">
+          <label><span class="req">*</span>单位</label>
+          <select class="select" id="f_unit">
+            <option value="tCO2e/百万元">tCO2e/百万元</option>
+            <option value="tCO2e/万人次">tCO2e/万人次</option>
+            <option value="ratio">ratio</option>
+            <option value="percent">percent</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label><span class="req">*</span>行业名称</label>
+          <select class="select" id="f_ind">
+            <option value="">请选择行业名称</option>
+          </select>
         </div>
       </div>
       <div class="modal-ft">
@@ -266,23 +226,20 @@
       <div class="modal-hd">行业映射</div>
       <div class="modal-bd">
         <div class="form-row">
-          <label><span class="req">*</span>接口行业（财务系统）</label>
-          <input class="input" id="m_api" placeholder="如 制造业-化工" />
+          <label><span class="req">*</span>国民经济行业代码（GB/T 4754-2017）</label>
+          <input class="input" id="m_gb" placeholder="如 C2614" />
         </div>
         <div class="form-row">
-          <label><span class="req">*</span>标准行业（压测口径）</label>
+          <label><span class="req">*</span>国民经济行业类别</label>
+          <input class="input" id="m_api" placeholder="如 有机化学原料制造" />
+        </div>
+        <div class="form-row">
+          <label><span class="req">*</span>行业大类</label>
           <input class="input" id="m_std" placeholder="如 化工" />
         </div>
         <div class="form-row">
-          <label>映射类型</label>
-          <select class="select" id="m_type">
-            <option value="一对一">一对一</option>
-            <option value="多对一">多对一</option>
-          </select>
-        </div>
-        <div class="form-row">
-          <label>国标代码</label>
-          <input class="input" id="m_gb" placeholder="如 C2614" />
+          <label><span class="req">*</span>测试行业类别</label>
+          <input class="input" id="m_test" placeholder="如 基础化学原料制造" />
         </div>
       </div>
       <div class="modal-ft">
@@ -402,16 +359,16 @@
     </div>
   </div>
 
-  <!-- 删除任务确认 -->
-  <div class="modal-mask" id="modalTaskDelete">
+  <!-- 删除确认（通用） -->
+  <div class="modal-mask" id="modalConfirmDelete">
     <div class="modal">
-      <div class="modal-hd">删除任务确认</div>
+      <div class="modal-hd" id="confirmDeleteTitle">删除确认</div>
       <div class="modal-bd">
-        <p>请您确认是否删除该核算任务：<strong id="deleteTaskName">-</strong>？</p>
+        <p id="confirmDeleteMessage">确认删除？</p>
       </div>
       <div class="modal-ft">
-        <button class="btn btn-default" onclick="CRST_APP.cancelDeleteTask()">取消</button>
-        <button class="btn btn-primary" onclick="CRST_APP.confirmDeleteTask()">确认删除</button>
+        <button class="btn btn-default" onclick="CRST_APP.cancelConfirmDelete()">取消</button>
+        <button class="btn btn-primary" onclick="CRST_APP.executeConfirmDelete()">确认删除</button>
       </div>
     </div>
   </div>
@@ -517,31 +474,38 @@
           </div>
         </div>
         <div id="sj_import_panel" style="display:none">
-          <div class="form-grid-2">
-            <div class="form-row">
-              <label>报告期开始</label>
-              <input class="input" id="sj_import_start" type="date" />
+          <div class="form-row">
+            <label><span class="req">*</span>请分别上传以下 4 份 Excel 文件</label>
+            <div class="sj-import-file-list">
+            <div class="sj-import-file-row" id="sj_import_row_customerBasic">
+              <div class="sj-import-file-label-wrap">
+                <div class="sj-import-file-label"><span class="req">*</span>高碳行业客户基础信息表</div>
+                <span class="sj-import-file-name" id="sj_import_hint_customerBasic" hidden></span>
+              </div>
+              <button type="button" class="btn btn-upload" onclick="CRST_APP.mockPickStressImportFile('customerBasic')">选择文件</button>
             </div>
-            <div class="form-row">
-              <label>报告期结束</label>
-              <input class="input" id="sj_import_end" type="date" />
+            <div class="sj-import-file-row" id="sj_import_row_internalPd">
+              <div class="sj-import-file-label-wrap">
+                <div class="sj-import-file-label"><span class="req">*</span>无财务数据客户内部 PD/LGD</div>
+                <span class="sj-import-file-name" id="sj_import_hint_internalPd" hidden></span>
+              </div>
+              <button type="button" class="btn btn-upload" onclick="CRST_APP.mockPickStressImportFile('internalPd')">选择文件</button>
             </div>
-            <div class="form-row">
-              <label>数据口径</label>
-              <select class="select" id="sj_import_caliber">
-                <option value="05财报">05财报</option>
-                <option value="07财报">07财报</option>
-                <option value="两种口径均输出">两种口径均输出</option>
-              </select>
+            <div class="sj-import-file-row" id="sj_import_row_bankBasic">
+              <div class="sj-import-file-label-wrap">
+                <div class="sj-import-file-label"><span class="req">*</span>参试银行基础信息表</div>
+                <span class="sj-import-file-name" id="sj_import_hint_bankBasic" hidden></span>
+              </div>
+              <button type="button" class="btn btn-upload" onclick="CRST_APP.mockPickStressImportFile('bankBasic')">选择文件</button>
             </div>
-            <div class="form-row">
-              <label>导入条数</label>
-              <input class="input" id="sj_import_count" type="number" min="1" max="5000" value="500" />
+            <div class="sj-import-file-row" id="sj_import_row_bankCapital">
+              <div class="sj-import-file-label-wrap">
+                <div class="sj-import-file-label"><span class="req">*</span>参试银行资本与拨备监管指标</div>
+                <span class="sj-import-file-name" id="sj_import_hint_bankCapital" hidden></span>
+              </div>
+              <button type="button" class="btn btn-upload" onclick="CRST_APP.mockPickStressImportFile('bankCapital')">选择文件</button>
             </div>
           </div>
-          <div class="toolbar" style="margin-top:8px">
-            <button type="button" class="btn btn-default" onclick="CRST_APP.mockPickStressImportFile()">选择 Excel 文件</button>
-            <span class="flow-hint" id="sj_import_file_hint">未选择文件，保存时将按条数生成</span>
           </div>
         </div>
       </div>
@@ -563,11 +527,10 @@
     </div>
   </div>
 
-  <script src="js/carbon-calculation-logic.js"></script>
-  <script src="js/calc-doc-content.js"></script>
+  <script src="js/carbon-calculation-logic.js?v=20260726b"></script>
   <script src="js/industry-selector-data.js"></script>
   <script src="js/release-notes.js?v=20260718u"></script>
-  <script src="js/store-full.js?v=20260717u"></script>
-  <script src="js/app-full.js?v=20260718u"></script>
+  <script src="js/store-full.js?v=20260726a"></script>
+  <script src="js/app-full.js?v=20260726r"></script>
 </body>
 </html>
