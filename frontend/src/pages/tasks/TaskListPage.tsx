@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Button, Form, Input, Modal, Space, Table, Tag, DatePicker, message } from 'antd';
+import { Button, Form, Input, Modal, Select, Table, Tag, message } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { taskApi } from '../../api/taskApi';
@@ -15,6 +15,21 @@ const statusMap: Record<string, { color: string; text: string }> = {
   COMPLETED: { color: 'success', text: '已完成' },
   ARCHIVED: { color: 'default', text: '已归档' },
 };
+
+const reportYearOptions = Array.from({ length: 74 }, (_, index) => {
+  const year = 2026 + index;
+  return { label: String(year), value: year };
+});
+
+const loanTypeOptions = [
+  { label: '对公', value: 'CORPORATE' },
+  { label: '个人', value: 'PERSONAL' },
+];
+
+const loanRegionOptions = [
+  { label: '境内', value: 'DOMESTIC' },
+  { label: '境外', value: 'OVERSEAS' },
+];
 
 export default function TaskListPage() {
   const navigate = useNavigate();
@@ -41,12 +56,11 @@ export default function TaskListPage() {
 
   const onCreate = async () => {
     const values = await form.validateFields();
-    const [start, end] = values.reportPeriod;
     await taskApi.create({
       taskName: values.taskName,
-      reportPeriodStart: start.format('YYYY-MM-DD'),
-      reportPeriodEnd: end.format('YYYY-MM-DD'),
-      dataCaliber: values.dataCaliber,
+      reportYear: values.reportYear,
+      loanType: values.loanType,
+      loanRegion: values.loanRegion,
       description: values.description,
     });
     message.success('任务创建成功');
@@ -71,9 +85,21 @@ export default function TaskListPage() {
           { title: '任务编号', dataIndex: 'taskCode', width: 160 },
           { title: '任务名称', dataIndex: 'taskName' },
           {
-            title: '报告期',
-            render: (_, r) => `${r.reportPeriodStart} ~ ${r.reportPeriodEnd}`,
+            title: '报告年度',
+            dataIndex: 'reportYear',
+            width: 120,
+          },
+          {
+            title: '贷款类型',
+            dataIndex: 'loanType',
+            width: 120,
+            render: (v: string) => (v === 'CORPORATE' ? '对公' : v === 'PERSONAL' ? '个人' : v),
+          },
+          {
+            title: '贷款地区',
+            dataIndex: 'loanRegion',
             width: 220,
+            render: (v: string) => (v === 'DOMESTIC' ? '境内' : v === 'OVERSEAS' ? '境外' : v),
           },
           {
             title: '状态',
@@ -101,11 +127,14 @@ export default function TaskListPage() {
           <Form.Item name="taskName" label="任务名称" rules={[{ required: true }]}>
             <Input placeholder="请输入" />
           </Form.Item>
-          <Form.Item name="reportPeriod" label="报告期时间范围" rules={[{ required: true }]}>
-            <DatePicker.RangePicker style={{ width: '100%' }} />
+          <Form.Item name="reportYear" label="报告年度" rules={[{ required: true }]}>
+            <Select placeholder="请选择年度" options={reportYearOptions} />
           </Form.Item>
-          <Form.Item name="dataCaliber" label="数据口径">
-            <Input placeholder="待业务确认可选项" />
+          <Form.Item name="loanType" label="贷款类型" rules={[{ required: true }]}>
+            <Select placeholder="请选择贷款类型" options={loanTypeOptions} />
+          </Form.Item>
+          <Form.Item name="loanRegion" label="贷款地区" rules={[{ required: true }]}>
+            <Select placeholder="请选择贷款地区" options={loanRegionOptions} />
           </Form.Item>
           <Form.Item name="description" label="任务说明">
             <Input.TextArea rows={3} maxLength={500} showCount />

@@ -22,7 +22,7 @@ test.describe('气候风险压测完整版', () => {
   });
 
   test('页面加载与菜单', async ({ page }) => {
-    await expect(page.locator('.sider-logo')).toContainText('华夏银行绿金系统');
+    await expect(page.locator('.sider-logo')).toContainText('气候风险压测系统');
     await expect(page.locator('[data-nav-page="data-process"]')).toBeVisible();
     await expect(page.locator('[data-nav-page="stress-trans"]')).toBeVisible();
     await expect(page.locator('[data-nav-page="results"]')).toBeVisible();

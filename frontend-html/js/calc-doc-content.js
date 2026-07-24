@@ -1,5 +1,5 @@
 /**
- * 计算方法说明页 — 完整文档内容（来源：华夏银行碳排放费用计算逻辑整理.docx）
+ * 计算方法说明页 — 完整文档内容（来源：碳排放费用计算逻辑整理文档）
  */
 window.CALC_DOC_CONTENT = (function () {
   const INDUSTRY_FACTORS = [

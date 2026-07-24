@@ -6,9 +6,9 @@ CREATE TABLE IF NOT EXISTS stress_test_task (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     task_code VARCHAR(64) NOT NULL UNIQUE,
     task_name VARCHAR(200) NOT NULL,
-    report_period_start DATE NOT NULL,
-    report_period_end DATE NOT NULL,
-    data_caliber VARCHAR(100),
+    report_year INT NOT NULL,
+    loan_type VARCHAR(32) NOT NULL,
+    loan_region VARCHAR(32) NOT NULL,
     description TEXT,
     status VARCHAR(32) NOT NULL,
     filter_json JSON,
@@ -100,7 +100,7 @@ CREATE TABLE IF NOT EXISTS export_record (
     exported_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- 操作日志（模块内轻量留痕，主系统日志仍由绿金系统承接）
+-- 操作日志（模块内轻量留痕，主系统日志仍由平台承接）
 CREATE TABLE IF NOT EXISTS operation_log (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     task_id BIGINT,

@@ -15,9 +15,9 @@ public class StressTestTask {
     private Long id;
     private String taskCode;
     private String taskName;
-    private LocalDate reportPeriodStart;
-    private LocalDate reportPeriodEnd;
-    private String dataCaliber;
+    private Integer reportYear;
+    private String loanType;
+    private String loanRegion;
     @Column(columnDefinition = "TEXT")
     private String description;
     private String status;

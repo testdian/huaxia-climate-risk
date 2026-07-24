@@ -12,9 +12,9 @@ export interface StressTask {
   id: number;
   taskCode: string;
   taskName: string;
-  reportPeriodStart: string;
-  reportPeriodEnd: string;
-  dataCaliber?: string;
+  reportYear: number;
+  loanType: 'CORPORATE' | 'PERSONAL';
+  loanRegion: 'DOMESTIC' | 'OVERSEAS';
   description?: string;
   status: TaskStatus;
   createdAt: string;

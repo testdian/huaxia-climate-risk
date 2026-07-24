@@ -9,7 +9,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * 华夏银行高碳行业碳排放费用与转型风险压测计算（行内方法文档）
+ * 高碳行业碳排放费用与转型风险压测计算
  */
 @Component
 public class CarbonStressCalculator {

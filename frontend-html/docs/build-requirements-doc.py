@@ -351,7 +351,7 @@ def build():
 
     sub = doc.add_paragraph()
     sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    r2 = sub.add_run('华夏银行绿金系统 · 原型 v1.0')
+    r2 = sub.add_run('气候风险压测系统 · 原型 v1.0')
     set_run_font(r2, 12)
 
     date_p = doc.add_paragraph()

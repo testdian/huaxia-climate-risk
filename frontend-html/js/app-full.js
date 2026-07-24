@@ -45,7 +45,7 @@
   /** 压测流水线步骤页（左侧菜单 ②③④） */
   const STRESS_STEP_PAGES = {
     'scenario-analysis': { pageId: 'scenario-analysis', stepIndex: 1, title: '情景分析', listTitle: '气候风险压测 — 情景分析' },
-    'stress-fin-trans': { pageId: 'stress-fin-trans', stepIndex: 1, title: '财务传导', listTitle: '气候风险压测 — 财务传导' },
+    'stress-fin-trans': { pageId: 'stress-fin-trans', stepIndex: 1, title: '逐户判定', listTitle: '气候风险压测 — 逐户判定' },
     'stress-pd-lgd': { pageId: 'stress-pd-lgd', stepIndex: 2, title: 'PD/LGD计算', listTitle: 'PD/LGD计算' },
     'stress-npl-prov': { pageId: 'stress-npl-prov', stepIndex: 3, title: '不良和拨备计算', listTitle: '不良和拨备计算' },
   };
@@ -1179,6 +1179,88 @@
     return !!(t?.finTransDone || t?.status === 'COMPLETED' || t?.creditFetched);
   }
 
+  const STRESS_PIPELINE_STEPS = [
+    { key: 'finTrans', label: '执行逐户判定' },
+    { key: 'nplProv', label: '执行不良和拨备计算' },
+    { key: 'pdLgd', label: '执行PD/LGD计算' },
+    { key: 'results', label: '执行压测结果分析' },
+  ];
+
+  function isStressPipelineNplProvDone(t) {
+    if (t?.status === 'COMPLETED') return true;
+    return !!t?.nplProvDone;
+  }
+
+  function isStressPipelineStepDone(t, id, stepKey) {
+    if (!t) return false;
+    if (t.status === 'COMPLETED') return true;
+    switch (stepKey) {
+      case 'finTrans': return isFinTransDone(t);
+      case 'nplProv': return isStressPipelineNplProvDone(t);
+      case 'pdLgd': return !!(t.creditFetched && t.eclFetched);
+      case 'results': return !!((stressResultsByJob[id] || []).length);
+      default: return false;
+    }
+  }
+
+  function isStressScenarioParamsSaved(t) {
+    if (!t) return false;
+    if (t.stressScenarioParamsSaved === false) return false;
+    if (t.stressScenarioParamsSaved === true) return true;
+    if (t.status === 'COMPLETED') return true;
+    return !!(isFinTransDone(t) || t.nplProvDone || (t.creditFetched && t.eclFetched));
+  }
+
+  function isStressPipelineAllDone(t, id) {
+    return STRESS_PIPELINE_STEPS.every((step) => isStressPipelineStepDone(t, id, step.key));
+  }
+
+  function canEditScenarioAnalysisConfig(t) {
+    if (!t || !isStressJobEntity(t)) return false;
+    if (t.status === 'ARCHIVED' || t.status === 'STRESSING') return false;
+    return t.status === 'READY' || t.status === 'COMPLETED';
+  }
+
+  function canRunStressPipelineStep(t, id, stepKey, editable) {
+    if (!editable || !t || t.status === 'STRESSING') return false;
+    if (!isStressScenarioParamsSaved(t)) return false;
+    return canEditScenarioAnalysisConfig(t);
+  }
+
+  function renderStressPipelinePanel(entityId, t, editable) {
+    const paramsSaved = isStressScenarioParamsSaved(t);
+    const steps = STRESS_PIPELINE_STEPS.map((step, i) => {
+      const done = isStressPipelineStepDone(t, entityId, step.key);
+      const canRun = canRunStressPipelineStep(t, entityId, step.key, editable);
+      const stateClass = done ? 'done' : (canRun ? 'ready' : 'pending');
+      return `
+        <div class="stress-pipeline-step stress-pipeline-step--${stateClass}">
+          <div class="stress-pipeline-step-main">
+            <span class="stress-pipeline-index">${done ? '✓' : i + 1}</span>
+            <div class="stress-pipeline-copy">
+              <span class="stress-pipeline-label">${esc(step.label)}</span>
+              ${done ? '<span class="stress-pipeline-badge">已完成</span>' : ''}
+            </div>
+          </div>
+          ${editable ? `<button type="button" class="btn btn-default btn-sm stress-pipeline-run"
+            onclick="CRST_APP.runStressPipelineStep(${entityId}, '${step.key}')"
+            ${canRun ? '' : 'disabled'}>${done ? '重新执行' : '立即执行'}</button>` : ''}
+        </div>
+        ${i < STRESS_PIPELINE_STEPS.length - 1 ? '<div class="stress-pipeline-line" aria-hidden="true"></div>' : ''}`;
+    }).join('');
+    const pipelineHint = paramsSaved
+      ? '各步骤可单独执行；完成某一步后，对应「财务传导」菜单模块才会生成数据。'
+      : '请先保存上方「压测情景」与「公共参数」，再执行下方计算步骤。';
+    return `
+      <section class="stress-pipeline-panel stress-pipeline-panel--below-params" aria-label="压测执行进度">
+        <div class="stress-pipeline-head">
+          <span class="stress-pipeline-title">压测执行进度</span>
+          <span class="stress-pipeline-sub">${pipelineHint}</span>
+        </div>
+        <div class="stress-pipeline-track">${steps}</div>
+      </section>`;
+  }
+
   function stressJobProgressStep(t) {
     if (!t) return 0;
     if (t.status === 'COMPLETED') return STRESS_JOB_STEP_LABELS.length;
@@ -1857,6 +1939,26 @@
     return t.status !== 'DRAFT';
   }
 
+  function canEnableDataSyncStep(t, step, taskId, syncDisabled) {
+    if (!t || syncDisabled) return false;
+    switch (step) {
+      case 1:
+        return !t.loanDataSynced;
+      case 2:
+        return !!t.loanDataSynced && !t.gelanDataSynced;
+      case 3:
+        return !!t.loanDataSynced && !!t.gelanDataSynced && !hasTaskFinancialDataSynced(t);
+      case 4:
+        return !!t.loanDataSynced
+          && !!t.gelanDataSynced
+          && hasTaskFinancialDataSynced(t)
+          && getInternalPdEligibleRecords(taskId, t).length > 0
+          && !t.internalPdDataSynced;
+      default:
+        return false;
+    }
+  }
+
   function canEditTaskBasicInfo(t) {
     return canEditTask(t) && !hasTaskFinancialDataSynced(t);
   }
@@ -2245,18 +2347,19 @@
     </thead>`;
   }
 
-  function renderInternalPdRow(r, idx) {
+  function renderInternalPdRow(r, idx, readonly = false) {
     const synced = !!r.internalPdSynced;
     const pdCell = synced && r.hasInternalRatingModel ? formatPdMetric(r.baselinePd) : '-';
     const pd0Cell = synced && !r.hasInternalRatingModel ? formatPdMetric(r.baselinePd0) : '-';
     const lgd0Cell = synced && !r.hasInternalRatingModel ? formatPdMetric(r.baselineLgd0) : '-';
+    const editableTag = readonly ? '' : renderEditableTag();
     return `<tr>
       <td>${idx + 1}</td>
       <td>${esc(r.customerId || '-')}</td>
       ${renderBasicInfoCells(r)}
-      <td class="num">${pdCell}</td>
-      <td class="num">${pd0Cell}</td>
-      <td class="num">${lgd0Cell}</td>
+      <td class="num">${pdCell}${editableTag}</td>
+      <td class="num">${pd0Cell}${editableTag}</td>
+      <td class="num">${lgd0Cell}${editableTag}</td>
     </tr>`;
   }
 
@@ -2266,7 +2369,7 @@
     if (!eligible.length) return '';
     const readonly = opts.readonly || (taskViewMode && !taskEditMode);
     const exportTaskId = opts.exportTaskId ?? t.id;
-    const rows = eligible.map((r, i) => renderInternalPdRow(r, i)).join('');
+    const rows = eligible.map((r, i) => renderInternalPdRow(r, i, !readonly)).join('');
     const emptyHint = t.internalPdDataSynced
       ? ''
       : '<p class="flow-hint internal-pd-empty-hint">请点击上方「同步内部PD数据」，为无财报客户补录 PD/LGD 指标。</p>';
@@ -2447,7 +2550,7 @@
 
   function finSyncTableColspan(opts) {
     let n = 28 + (opts.showCustomerId ? 1 : 0);
-    if (opts.showStatusCols !== false) n += 2;
+    if (opts.showStatusCols !== false) n += 1;
     if (opts.showOpCol) n += 1;
     if (opts.showInternalCol) n += 1;
     return n;
@@ -2458,7 +2561,6 @@
     const showStatus = opts.showStatusCols !== false;
     const metaCells = showStatus ? [
       '<th rowspan="2" class="th-sub th-group-meta">状态</th>',
-      '<th rowspan="2" class="th-sub th-group-meta">原因</th>',
     ] : [];
     if (opts.showOpCol) metaCells.push('<th rowspan="2" class="th-sub">操作</th>');
     if (opts.showInternalCol) metaCells.push('<th rowspan="2" class="th-sub">纳入内部汇总</th>');
@@ -2517,6 +2619,8 @@
     const ghgAmount = !ghgVisible
       ? ''
       : (r.ghgAccounted && r.ghgEmissions != null ? fmtFinAmount(r.ghgEmissions) : '-');
+    const ghgEditable = ghgVisible && !opts.readonly;
+    const ghgEditTag = ghgEditable ? renderEditableTag() : '';
     const showStatus = opts.showStatusCols !== false;
     const customerIdCell = opts.showCustomerId
       ? `<td>${esc(r.customerId || '-')}</td>` : '';
@@ -2528,7 +2632,7 @@
       <td>${esc(r.companyName)}</td>
       <td>${esc(r.unifiedSocialCreditCode || '-')}</td>
       <td>${esc(r.province || provinceFromBranch(r.branchName))}</td>
-      <td>${esc(formatCustomerIndustryLabel(r))}</td>
+      <td>${renderCustomerIndustryCell(r)}</td>
       <td>${fmtFinAmount(r.loanBalance)}</td>
       <td>${r.loanTermYears ?? '-'}</td>
       <td>${r.loanRemainingTermYears ?? '-'}</td>
@@ -2548,9 +2652,9 @@
       <td>${finCell(r.operatingCost)}</td>
       <td>${finCell(r.totalProfit)}</td>
       <td>${finCell(r.netProfit)}</td>
-      <td>${ghgYesNo}</td>
-      <td>${ghgAmount}</td>
-      ${showStatus ? `<td>${syncStatusLabel(effectiveSyncStatus(r))}</td><td>${esc(r.availabilityReason)}</td>` : ''}
+      <td>${ghgYesNo}${ghgEditTag}</td>
+      <td>${ghgAmount}${ghgEditTag}</td>
+      ${showStatus ? `<td>${customerBasicDisplayStatusLabel(r)}</td>` : ''}
       ${opts.showOpCol ? `<td>${r.dataAvailability === 'ABNORMAL'
         ? `<button class="btn btn-link" onclick="CRST_APP.excludeRecord(${t.id},${r.id})">删除</button>` : '-'}</td>` : ''}
       ${opts.showInternalCol ? `<td>${r.reportMissing
@@ -2637,6 +2741,7 @@
   function renderCustomerBasicInfoSection(t, list, opts = {}) {
     const regulatoryView = !!opts.regulatoryView;
     const showStatusCols = opts.showStatusCols !== false;
+    const readonly = opts.readonly || (taskViewMode && !taskEditMode);
     const tableOpts = {
       ...opts,
       regulatoryView,
@@ -2644,6 +2749,7 @@
       showCustomerId: opts.showCustomerId !== false,
       showOpCol: !!opts.showOpCol,
       showInternalCol: !!opts.showInternalCol,
+      readonly,
     };
     const table = renderFinancialSyncTable(
       list,
@@ -2651,41 +2757,28 @@
       tableOpts,
       opts.emptyText || '请先同步数据',
     );
-    const readonly = opts.readonly || (taskViewMode && !taskEditMode);
     const showToolbar = opts.showToolbar !== false && list.length;
     const exportTaskId = opts.exportTaskId ?? t.id;
-    const showGhgEditBtn = !readonly
-      && hasTaskGelanDataSynced(t)
-      && t.status !== 'COMPLETED'
-      && t.status !== 'ARCHIVED';
+    const taskRecs = recordsByTask[t.id] || list || [];
+    const pendingIndustryEditCount = getPendingDisambigRecords(taskRecs).length;
+    const showGhgEditBtn = !readonly && hasTaskGelanDataSynced(t);
+    const showIndustryEditBtn = !readonly && t.loanDataSynced && pendingIndustryEditCount > 0;
     const toolbar = showToolbar ? `
       <div class="toolbar step-toolbar-top customer-basic-toolbar">
         <div class="toolbar-btn-group toolbar-btn-group--start">
-          ${showGhgEditBtn ? `<button type="button" class="btn btn-default" onclick="CRST_APP.openGhgEmissionEditModal(${exportTaskId})">编辑温室气体排放数据</button>` : ''}
+          ${showGhgEditBtn ? `<button type="button" class="btn btn-edit-highlight" onclick="CRST_APP.openGhgEmissionEditModal(${exportTaskId})">编辑温室气体排放数据</button>` : ''}
+          ${showIndustryEditBtn ? `<button type="button" class="btn btn-edit-highlight" onclick="CRST_APP.openIndustryEditModal(${exportTaskId})">编辑行业</button>` : ''}
         </div>
         <div class="toolbar-btn-group toolbar-btn-group--end">
           <button type="button" class="btn btn-default" onclick="CRST_APP.exportCustomerBasicInfo(${exportTaskId})">导出客户基础信息</button>
           ${readonly ? '' : `<button type="button" class="btn btn-default" onclick="CRST_APP.openDataProcessImportModal(${exportTaskId})">导入客户基础信息</button>`}
         </div>
       </div>` : '';
-    const pendingDisambigCount = opts.pendingDisambigCount || 0;
-    const viewOnly = opts.viewOnly || (taskViewMode && !taskEditMode);
-    const showDisambigFooter = pendingDisambigCount > 0 && (!readonly || viewOnly);
-    const disambigFooter = showDisambigFooter ? `
-      <div class="customer-basic-table-footer step-footer-hint">
-        <span class="step-footer-msg">识别到 <strong>${pendingDisambigCount}</strong> 条行业歧义客户，请先完成甄别确认。</span>
-        ${viewOnly ? '' : `<button type="button" class="btn btn-primary btn-next-step" onclick="CRST_APP.openIndustryDisambigModal(${exportTaskId})">行业甄别确认</button>`}
-      </div>` : '';
-    const dataQualityFooter = opts.dataQualityHint && (!readonly || viewOnly) ? `
-      <div class="customer-basic-table-footer customer-basic-table-footer--message step-footer-hint">
-        <span class="step-footer-msg">${opts.dataQualityHint}</span>
-      </div>` : '';
     return `
       <div class="customer-basic-info-section">
         <h4 class="step-subtitle">高碳行业客户基础信息表</h4>
         ${toolbar}
         ${table}
-        ${disambigFooter}${dataQualityFooter}
       </div>`;
   }
 
@@ -3023,10 +3116,11 @@
   }
 
   function onStressScenarioToggle(taskId) {
-    const t = getTask(taskId);
+    const t = resolveEntity(taskId);
     if (!t) return;
     saveStressDraftsFromDom(taskId, t);
     t.selectedScenarioCodes = selectedScenarioCodes(taskId);
+    if (isStressJobEntity(t)) t.stressScenarioParamsSaved = false;
     render();
   }
 
@@ -3065,24 +3159,26 @@
     return '';
   }
 
-  function buildStressCommonParamFieldsHtml(entityId, p, scenarioReadonly) {
+  function buildStressCommonParamFieldsHtml(entityId, p, scenarioReadonly, opts = {}) {
     const dis = scenarioReadonly ? 'disabled' : '';
+    const dirtyAttr = opts.onDirty ? ` onchange="CRST_APP.markStressScenarioParamsDirty(${entityId})"` : '';
     return `
-      <div class="form-row"><label>起始年份</label><input class="input" id="${commonScenarioInputId(entityId, 'start')}" type="number" value="${p.startYear}" ${dis} /></div>
-      <div class="form-row"><label>结束年份</label><input class="input" id="${commonScenarioInputId(entityId, 'end')}" type="number" value="${p.endYear}" ${dis} /></div>
-      <div class="form-row"><label>免费配额比例（${p.startYear}年）</label><input class="input" id="${commonScenarioInputId(entityId, 'freeQuotaStart')}" type="number" step="0.0001" min="0" max="1" value="${p.freeQuotaStart ?? p.freeQuotaRatio ?? 1}" ${dis} /></div>
-      <div class="form-row"><label>免费配额比例（${p.endYear}年）</label><input class="input" id="${commonScenarioInputId(entityId, 'freeQuotaEnd')}" type="number" step="0.0001" min="0" max="1" value="${p.freeQuotaEnd ?? p.freeQuotaRatio ?? 0.75}" ${dis} /></div>
+      <div class="form-row"><label>起始年份</label><input class="input" id="${commonScenarioInputId(entityId, 'start')}" type="number" value="${p.startYear}" ${dis}${dirtyAttr} /></div>
+      <div class="form-row"><label>结束年份</label><input class="input" id="${commonScenarioInputId(entityId, 'end')}" type="number" value="${p.endYear}" ${dis}${dirtyAttr} /></div>
+      <div class="form-row"><label>免费配额比例（${p.startYear}年）</label><input class="input" id="${commonScenarioInputId(entityId, 'freeQuotaStart')}" type="number" step="0.0001" min="0" max="1" value="${p.freeQuotaStart ?? p.freeQuotaRatio ?? 1}" ${dis}${dirtyAttr} /></div>
+      <div class="form-row"><label>免费配额比例（${p.endYear}年）</label><input class="input" id="${commonScenarioInputId(entityId, 'freeQuotaEnd')}" type="number" step="0.0001" min="0" max="1" value="${p.freeQuotaEnd ?? p.freeQuotaRatio ?? 0.75}" ${dis}${dirtyAttr} /></div>
       <div class="form-row form-row--hint"><span class="flow-hint">免费配额在 ${p.startYear}—${p.endYear} 年间线性变化</span></div>`;
   }
 
-  function buildStressCommonParamCardHtml(t, entityId, scenarioReadonly) {
+  function buildStressCommonParamCardHtml(t, entityId, scenarioReadonly, opts = {}) {
     const p = getStressCommonParams(t);
+    const lockedClass = opts.locked ? ' stress-param-card--locked' : '';
     return `
-      <div class="card stress-param-card stress-param-card--common">
+      <div class="card stress-param-card stress-param-card--common${lockedClass}">
         <h4 class="stress-param-card-title">公共参数</h4>
         <p class="flow-hint stress-param-common-hint">以下参数在三种压测情景间共用，只需录入一份。</p>
         <div class="form-grid-2 stress-param-form-grid">
-          ${buildStressCommonParamFieldsHtml(entityId, p, scenarioReadonly)}
+          ${buildStressCommonParamFieldsHtml(entityId, p, scenarioReadonly, opts)}
         </div>
       </div>`;
   }
@@ -3119,6 +3215,56 @@
 
   function syncStatusLabel(avail) {
     return SYNC_STATUS_TEXT[avail] || avail || '-';
+  }
+
+  function needsIndustryEdit(r) {
+    if (r.excluded) return false;
+    const rule = detectAmbiguityForRecord(r);
+    if (!rule) return false;
+    if (!r.ambiguityCode) r.ambiguityCode = rule.code;
+    return !r.ambiguityConfirmed;
+  }
+
+  function isMissingAirportThroughput(r) {
+    if (r.excluded) return false;
+    if (isAirportEnterprise(r) && !r.throughputFetched) return true;
+    return r.dataAvailability === 'ABNORMAL'
+      && String(r.availabilityReason || '').includes('旅客吞吐量');
+  }
+
+  function isExcludedPerCustomerJudgment(r) {
+    if (r.excluded) return false;
+    return r.reportMissing || r.dataAvailability === 'EXCLUDED_NO_REPORT';
+  }
+
+  function customerBasicDisplayStatusKey(r) {
+    if (r.excluded || r.dataAvailability === 'EXCLUDED') return 'EXCLUDED';
+    if (needsIndustryEdit(r)) return 'NEED_INDUSTRY_EDIT';
+    if (isExcludedPerCustomerJudgment(r)) return 'EXCLUDED_NO_REPORT';
+    if (isMissingAirportThroughput(r)) return 'MISSING_AIRPORT';
+    return 'USABLE';
+  }
+
+  const CUSTOMER_BASIC_STATUS_LABELS = {
+    USABLE: '可使用',
+    NEED_INDUSTRY_EDIT: '需修改行业',
+    EXCLUDED_NO_REPORT: '已排除逐户判定',
+    MISSING_AIRPORT: '缺少机场吞吐量',
+  };
+
+  function customerBasicDisplayStatusLabel(r) {
+    const key = customerBasicDisplayStatusKey(r);
+    return CUSTOMER_BASIC_STATUS_LABELS[key] || '-';
+  }
+
+  function renderEditableTag() {
+    return ' <span class="bank-capital-editable-tag">可编辑</span>';
+  }
+
+  function renderCustomerIndustryCell(r) {
+    const label = formatCustomerIndustryLabel(r);
+    const editableTag = needsIndustryEdit(r) ? renderEditableTag() : '';
+    return `${esc(label)}${editableTag}`;
   }
 
   function avgFillStatusTag(filled) {
@@ -3333,7 +3479,7 @@
       </div>`;
     const editToolbar = readonly ? '' : `
       <div class="toolbar step-toolbar-top bank-capital-edit-toolbar">
-        <button type="button" class="btn btn-default" onclick="CRST_APP.openBankCapitalEditModal(${t.id})">编辑数据</button>
+        <button type="button" class="btn btn-edit-highlight" onclick="CRST_APP.openBankCapitalEditModal(${t.id})">编辑数据</button>
       </div>`;
     return `
       <div class="bank-capital-metrics-section">
@@ -3341,7 +3487,7 @@
           <h4 class="step-subtitle">参试银行资本与拨备监管指标</h4>
           ${toolbarActions}
         </div>
-        <p class="flow-hint">以下指标在同步贷款数据时从信贷系统获取；「贷款拨备率监管要求」「拨备覆盖率监管要求」支持手动调整。</p>
+        <p class="flow-hint">以下指标在同步贷款数据时从监管市集获取；「贷款拨备率监管要求」「拨备覆盖率监管要求」支持手动调整。</p>
         ${editToolbar}
         <div class="table-wrap bank-capital-metrics-table">
           <table>
@@ -3377,7 +3523,7 @@
           <h4 class="step-subtitle">参试银行基础信息表</h4>
           ${toolbarActions}
         </div>
-        <p class="flow-hint bank-basic-info-hint">同步财务数据后根据当前客户清单动态汇总；行业甄别、一键处理或导入补录后数值随之更新。</p>
+        <p class="flow-hint bank-basic-info-hint">同步财务数据后根据当前客户清单动态汇总。</p>
         <div class="table-wrap bank-basic-info-table">
           <table>
             <thead>
@@ -3571,8 +3717,7 @@
     const body = document.getElementById('ghgEmissionEditBody');
     if (!body) return;
     body.innerHTML = recs.length
-      ? `<p class="modal-desc">可编辑各客户的「核算温室气体排放情况（是/否）」与「温室气体排放量（吨CO2当量）」。</p>
-        <div class="table-wrap">
+      ? `<div class="table-wrap">
           <table>
             <thead><tr><th>客户名称</th><th>客户号</th><th>核算温室气体排放情况（是/否）</th><th>温室气体排放量（吨CO2当量）</th></tr></thead>
             <tbody>${recs.map((r) => {
@@ -3717,12 +3862,6 @@
     const capital = getTaskBankCapital(t);
     const body = document.getElementById('bankCapitalEditBody');
     if (!body || !capital) return;
-    const readonlyHtml = BANK_BASIC_CAPITAL_ROWS
-      .filter((row) => !BANK_CAPITAL_EDITABLE_KEYS.includes(row.key))
-      .map((row) => `<tr>
-        <td>${esc(row.label)}</td>
-        <td class="bank-capital-readonly-val">${formatBankBasicCell(capital[row.key], row.isPct)}</td>
-      </tr>`).join('');
     const editableHtml = BANK_BASIC_CAPITAL_ROWS
       .filter((row) => BANK_CAPITAL_EDITABLE_KEYS.includes(row.key))
       .map((row) => `<tr>
@@ -3731,11 +3870,11 @@
           value="${capital[row.key] != null ? capital[row.key] : ''}" /></td>
       </tr>`).join('');
     body.innerHTML = `
-      <p class="modal-desc">同步贷款数据时获取的资本指标为只读；贷款拨备率与拨备覆盖率监管要求可手动调整。</p>
+      <p class="modal-desc">贷款拨备率与拨备覆盖率监管要求可手动调整。</p>
       <div class="table-wrap bank-capital-edit-table">
         <table>
           <thead><tr><th>指标名称</th><th>数值</th></tr></thead>
-          <tbody>${readonlyHtml}${editableHtml}</tbody>
+          <tbody>${editableHtml}</tbody>
         </table>
       </div>`;
     showModal('modalBankCapitalEdit');
@@ -3809,6 +3948,15 @@
   function filterSyncRecords(recs, taskId) {
     const status = syncListFilters[taskId] || '';
     if (!status) return recs;
+    if (status === 'NEED_INDUSTRY_EDIT' || status === 'MISSING_AIRPORT') {
+      return recs.filter((r) => customerBasicDisplayStatusKey(r) === status);
+    }
+    if (status === 'USABLE') {
+      return recs.filter((r) => customerBasicDisplayStatusKey(r) === 'USABLE');
+    }
+    if (status === 'EXCLUDED_NO_REPORT') {
+      return recs.filter((r) => customerBasicDisplayStatusKey(r) === 'EXCLUDED_NO_REPORT');
+    }
     return recs.filter((r) => effectiveSyncStatus(r) === status);
   }
 
@@ -4048,10 +4196,16 @@
   const MENU_TREE = [
     { page: 'data-process', label: '数据处理' },
     { page: 'scenario-analysis', label: '情景分析' },
+    {
+      key: 'fin-trans',
+      label: '财务传导',
+      children: [
+        { page: 'stress-fin-trans', label: '逐户判定' },
+        { page: 'stress-npl-prov', label: '不良和拨备计算' },
+        { page: 'stress-pd-lgd', label: 'PD/LGD计算' },
+      ],
+    },
     { page: 'results', label: '压测结果分析' },
-    { page: 'stress-fin-trans', label: '财务传导' },
-    { page: 'stress-npl-prov', label: '不良和拨备计算' },
-    { page: 'stress-pd-lgd', label: 'PD/LGD计算' },
     { page: 'exports', label: '导出记录' },
     {
       key: 'config',
@@ -4126,9 +4280,9 @@
   const PAGE_SECTION = {
     'data-process': 'data-process',
     'scenario-analysis': 'scenario-analysis',
-    'stress-fin-trans': 'stress-fin-trans',
-    'stress-pd-lgd': 'stress-pd-lgd',
-    'stress-npl-prov': 'stress-npl-prov',
+    'stress-fin-trans': 'fin-trans',
+    'stress-pd-lgd': 'fin-trans',
+    'stress-npl-prov': 'fin-trans',
     results: 'results',
     exports: 'exports',
     'task-detail': 'data-process',
@@ -4690,6 +4844,10 @@
     render();
   }
 
+  function openIndustryEditModal(taskId) {
+    openIndustryDisambigModal(taskId);
+  }
+
   function openIndustryDisambigModal(taskId) {
     modalState = { type: 'disambig', taskId };
     const recs = getPendingDisambigRecords(recordsByTask[taskId] || []);
@@ -4701,12 +4859,11 @@
         `<option value="${esc(o)}" ${r.standardIndustry === o ? 'selected' : ''}>${esc(o)}</option>`
       ).join('');
       return `<div class="disambig-row" data-rec-id="${r.id}">
-        <div class="disambig-head"><strong>${esc(r.companyName)}</strong> · ${esc(r.creditNo || r.customerId || '-')}</div>
+        <div class="disambig-head"><strong>${esc(r.companyName)}</strong></div>
         <div class="form-grid-2">
           <div class="form-row"><label>歧义类型</label><span>${esc(rule?.code || '-')} ${esc(rule?.gbName || '')}</span></div>
           <div class="form-row"><label>测试行业类别</label><select class="select disambig-industry" data-rec-id="${r.id}">${opts}</select></div>
         </div>
-        <div class="form-row"><label>甄别依据</label><input class="input disambig-note" data-rec-id="${r.id}" placeholder="${esc(rule?.hint || '桌面调研说明')}" value="${esc(r.disambigNote || '')}" /></div>
       </div>`;
     }).join('') || '<div class="empty">暂无待甄别客户</div>';
     showModal('modalIndustryDisambig');
@@ -4725,8 +4882,6 @@
       rec.standardIndustry = sel.value;
       rec.ambiguityConfirmed = true;
       rec.availabilityReason = '行业甄别已确认';
-      const noteEl = document.querySelector(`.disambig-note[data-rec-id="${recId}"]`);
-      rec.disambigNote = noteEl?.value?.trim() || '';
       addLog(taskId, `行业甄别：${rec.companyName} ${prev} → ${rec.standardIndustry}`);
     });
     if (allDisambigConfirmed(recs)) {
@@ -4741,19 +4896,34 @@
   }
 
   /* —— 压测任务四步详情 —— */
-  function buildStressScenarioSection(t, entityId, readonly, stepIndex = 1) {
-    const stressEditable = canEditStressSection(t, stepIndex);
-    const scenarioReadonly = !stressEditable;
+  function buildStressScenarioSection(t, entityId, readonly, stepIndex = 1, sectionOpts = {}) {
+    const scenarioConfigMode = Object.prototype.hasOwnProperty.call(sectionOpts, 'commonParamsLocked')
+      || Object.prototype.hasOwnProperty.call(sectionOpts, 'scenarioParamsLocked');
+    let stressEditable;
+    let scenarioReadonly;
+    let commonParamsReadonly;
+    if (scenarioConfigMode) {
+      scenarioReadonly = readonly || !!sectionOpts.scenarioParamsLocked;
+      commonParamsReadonly = readonly || !!sectionOpts.commonParamsLocked;
+      stressEditable = !scenarioReadonly && !commonParamsReadonly;
+    } else {
+      stressEditable = canEditStressSection(t, stepIndex);
+      scenarioReadonly = !stressEditable;
+      commonParamsReadonly = scenarioReadonly;
+    }
     const pubScenarios = scenariosForJob();
     const defaultCodes = pubScenarios.map((s) => s.scenarioCode);
     const selectedCodes = t.selectedScenarioCodes?.length
       ? t.selectedScenarioCodes.filter((c) => pubScenarios.some((s) => s.scenarioCode === c))
       : defaultCodes;
+    const scenarioChecksReadonly = scenarioReadonly;
     const checks = pubScenarios.map((s) =>
-      `<label><input type="checkbox" name="sc_${entityId}" value="${esc(s.scenarioCode)}" ${selectedCodes.includes(s.scenarioCode) ? 'checked' : ''} onchange="CRST_APP.onStressScenarioToggle(${entityId})" ${scenarioReadonly ? 'disabled' : ''} /> ${esc(s.scenarioName)}</label>`
+      `<label><input type="checkbox" name="sc_${entityId}" value="${esc(s.scenarioCode)}" ${selectedCodes.includes(s.scenarioCode) ? 'checked' : ''} onchange="CRST_APP.onStressScenarioToggle(${entityId})" ${scenarioChecksReadonly ? 'disabled' : ''} /> ${esc(s.scenarioName)}</label>`
     ).join('');
+    const commonParamOpts = sectionOpts.markParamsDirty ? { onDirty: true } : {};
+    if (sectionOpts.commonParamsLocked) commonParamOpts.locked = true;
     const commonParamHtml = selectedCodes.length
-      ? buildStressCommonParamCardHtml(t, entityId, scenarioReadonly)
+      ? buildStressCommonParamCardHtml(t, entityId, commonParamsReadonly, commonParamOpts)
       : '';
     return { checks, commonParamHtml, scenarioCardHtml: '', selectedCodes, stressEditable };
   }
@@ -4787,20 +4957,43 @@
     }
 
     if (step === 1) {
-      const { checks, commonParamHtml, scenarioCardHtml, stressEditable } = buildStressScenarioSection(t, entityId, ctx.readonly);
       const finDone = isFinTransDone(t);
       if (isScenarioAnalysisPage()) {
+        const paramsLocked = isStressScenarioParamsSaved(t) && !taskEditMode;
+        const canEditScenarioConfig = canEditScenarioAnalysisConfig(t);
+        const scenarioSection = buildStressScenarioSection(t, entityId, !canEditScenarioConfig, 1, {
+          markParamsDirty: canEditScenarioConfig && !paramsLocked,
+          commonParamsLocked: paramsLocked && canEditScenarioConfig,
+          scenarioParamsLocked: paramsLocked && canEditScenarioConfig,
+        });
+        const { checks, commonParamHtml, scenarioCardHtml } = scenarioSection;
+        const scenarioChecksLocked = paramsLocked && canEditScenarioConfig;
+        const pipelineAllDone = isStressPipelineAllDone(t, entityId);
+        const canRunPipeline = canEditScenarioConfig;
         return `
-        <h4 class="step-subtitle step-panel-title-divider">压测情景</h4>
-        <div class="checkbox-group scenario-checkbox-group">${checks || '<span class="scenario-check-empty">无已生效压测情景，请联系管理员配置。</span>'}</div>
-        ${commonParamHtml || ''}
+        <div class="stress-scenario-config-section">
+          <h4 class="step-subtitle step-panel-title-divider">压测情景</h4>
+          <div class="checkbox-group scenario-checkbox-group${scenarioChecksLocked ? ' scenario-checkbox-group--locked' : ''}">${checks || '<span class="scenario-check-empty">无已生效压测情景，请联系管理员配置。</span>'}</div>
+          ${commonParamHtml || ''}
+          ${canEditScenarioConfig ? `
+          <div class="toolbar stress-scenario-save-toolbar">
+            ${paramsLocked
+    ? `<button type="button" class="btn btn-default" onclick="CRST_APP.editScenarioStressParams(${entityId})">编辑</button>`
+    : `<div class="stress-scenario-save-actions">
+                <button type="button" class="btn btn-primary" onclick="CRST_APP.saveScenarioStressParams(${entityId})">保存</button>
+                <button type="button" class="btn btn-default" onclick="CRST_APP.cancelScenarioStressParams(${entityId})">取消</button>
+              </div>`}
+            <span class="stress-params-save-hint ${paramsLocked ? 'is-saved' : 'is-pending'}">${paramsLocked ? '已保存，可执行下方计算步骤' : '请先保存压测情景与公共参数'}</span>
+          </div>` : (paramsLocked ? '<p class="stress-params-save-hint is-saved">压测情景与公共参数已保存</p>' : '')}
+        </div>
+        ${renderStressPipelinePanel(entityId, t, canRunPipeline)}
         ${scenarioCardHtml || ''}
-        <div class="toolbar step-panel-actions step-panel-actions--with-back" style="margin-top:12px">
+        ${pipelineAllDone ? `
+        <div class="toolbar step-panel-actions step-panel-actions--with-back scenario-analysis-back-toolbar">
           ${renderStressJobListBackButton()}
-          ${stressEditOnly ? '<button class="btn btn-default" onclick="CRST_APP.cancelEditTask()">取消编辑</button>' : ''}
-          ${stressEditable ? `<button class="btn btn-primary" onclick="CRST_APP.runScenarioStress(${entityId})">${finDone || t.status === 'COMPLETED' ? '重新执行压测' : '执行压测'}</button>` : ''}
-        </div>`;
+        </div>` : ''}`;
       }
+      const { checks, commonParamHtml, scenarioCardHtml, stressEditable } = buildStressScenarioSection(t, entityId, ctx.readonly);
       return `
         ${dataBanner}
         <h3 class="step-panel-title">财务传导</h3>
@@ -4972,27 +5165,19 @@
       const statusFilterOpts = [
         { value: '', label: '全部' },
         { value: 'USABLE', label: '可使用' },
-        { value: 'NEED_AVG', label: '需计算' },
-        { value: 'ABNORMAL', label: '无法处理' },
-        { value: 'EXCLUDED', label: '已排除' },
+        { value: 'NEED_INDUSTRY_EDIT', label: '需修改行业' },
         { value: 'EXCLUDED_NO_REPORT', label: '已排除逐户判定' },
+        { value: 'MISSING_AIRPORT', label: '缺少机场吞吐量' },
       ].map((o) => `<option value="${o.value}" ${syncStatusFilter === o.value ? 'selected' : ''}>${o.label}</option>`).join('');
       const showSyncOpCol = (dataProcessing || pendingDisambig || t.status === 'SYNCING') && !taskViewMode && syncStats.abnormal > 0;
       const showInternalSummaryCol = t.sceneType === 'INTERNAL' && !taskViewMode && !dataProcessing;
       const rowClass = (r) => {
-        if (r.dataAvailability === 'EXCLUDED_NO_REPORT') return 'row-danger';
+        if (customerBasicDisplayStatusKey(r) === 'EXCLUDED_NO_REPORT') return 'row-danger';
         if (r.excluded || r.dataAvailability === 'EXCLUDED') return 'row-muted';
-        if (r.ambiguityCode && !r.ambiguityConfirmed) return 'row-warning';
+        if (needsIndustryEdit(r)) return 'row-warning';
+        if (customerBasicDisplayStatusKey(r) === 'MISSING_AIRPORT') return 'row-warning';
         return '';
       };
-      const airportRecs = recs.filter(isAirportEnterprise);
-      const airportFetchedCount = airportRecs.filter((r) => r.throughputFetched).length;
-      const airportMissingCount = airportRecs.length - airportFetchedCount;
-      const airportHint = airportMissingCount > 0
-        ? `（含 ${airportMissingCount} 条机场企业旅客吞吐量未调取，请先在「机场吞吐量维护」补录后重新同步）` : '';
-      const dataQualityHint = recs.length && !allUsable && !pendingDisambig
-        ? `尚有无法使用数据${syncStats.abnormal ? `（无法处理 <strong>${syncStats.abnormal}</strong> 条）` : ''}${syncStats.needAvg ? `（需计算 <strong>${syncStats.needAvg}</strong> 条）` : ''}${airportHint}，请在列表中删除无法处理记录或通过客户基础信息表工具栏导入补录。`
-        : '';
       const customerBasicSection = renderCustomerBasicInfoSection(t, recs.length ? filteredRecs : [], {
         showOpCol: showSyncOpCol,
         showInternalCol: showInternalSummaryCol,
@@ -5000,14 +5185,10 @@
         rowClass,
         showToolbar: recs.length > 0,
         emptyText: t.loanDataSynced ? (t.gelanDataSynced ? '请先同步财务数据' : '请先同步格澜数据') : '请先同步贷款数据',
-        pendingDisambigCount: pendingDisambig ? pendingDisambigCount : (viewOnly ? getPendingDisambigRecords(recs).length : 0),
-        dataQualityHint,
         viewOnly,
       });
       const totalCount = t.syncStats?.total ?? recs.length;
-      const airportSummary = airportRecs.length
-        ? `；机场企业 ${airportRecs.length} 条（吞吐量已调取 ${airportFetchedCount} 条）` : '';
-      const syncSummaryText = `同步条数：${totalCount}条；可使用：${syncStats.usable}条；需计算：${syncStats.needAvg}条；无法处理：${syncStats.abnormal}条；已排除：${syncStats.excluded}条${airportSummary}`;
+      const syncSummaryText = `同步条数：${totalCount}条`;
 
       let stepFooter = '';
       if (!taskViewMode && t.status === 'COMPLETED' && t.bankBasicInfo) {
@@ -5019,11 +5200,23 @@
 
       panel += `
         <p class="sync-summary-text">${syncSummaryText}</p>
-        <div class="toolbar step-toolbar-top">
-          <button type="button" class="btn btn-primary" ${syncDisabled || t.loanDataSynced ? 'disabled' : ''} onclick="CRST_APP.syncLoanData(${t.id})">同步贷款数据</button>
-          <button type="button" class="btn btn-primary" ${syncDisabled || !t.loanDataSynced || t.gelanDataSynced ? 'disabled' : ''} onclick="CRST_APP.syncGelanData(${t.id})">同步格澜数据</button>
-          <button type="button" class="btn btn-primary" ${syncDisabled || !t.loanDataSynced || !t.gelanDataSynced || hasTaskFinancialDataSynced(t) ? 'disabled' : ''} onclick="CRST_APP.syncFinancial(${t.id})">同步财务数据</button>
-          <button type="button" class="btn btn-primary" ${syncDisabled || !hasTaskFinancialDataSynced(t) || !getInternalPdEligibleRecords(t.id, t).length || t.internalPdDataSynced ? 'disabled' : ''} onclick="CRST_APP.syncInternalPdData(${t.id})">同步内部PD数据</button>
+        <div class="toolbar step-toolbar-top sync-action-toolbar">
+          <div class="sync-action-item">
+            <span class="sync-action-index" aria-hidden="true">1</span>
+            <button type="button" class="btn btn-primary" ${canEnableDataSyncStep(t, 1, t.id, syncDisabled) ? '' : 'disabled'} onclick="CRST_APP.syncLoanData(${t.id})">同步贷款数据</button>
+          </div>
+          <div class="sync-action-item">
+            <span class="sync-action-index" aria-hidden="true">2</span>
+            <button type="button" class="btn btn-primary" ${canEnableDataSyncStep(t, 2, t.id, syncDisabled) ? '' : 'disabled'} onclick="CRST_APP.syncGelanData(${t.id})">同步格澜数据</button>
+          </div>
+          <div class="sync-action-item">
+            <span class="sync-action-index" aria-hidden="true">3</span>
+            <button type="button" class="btn btn-primary" ${canEnableDataSyncStep(t, 3, t.id, syncDisabled) ? '' : 'disabled'} onclick="CRST_APP.syncFinancial(${t.id})">同步财务数据</button>
+          </div>
+          <div class="sync-action-item">
+            <span class="sync-action-index" aria-hidden="true">4</span>
+            <button type="button" class="btn btn-primary" ${canEnableDataSyncStep(t, 4, t.id, syncDisabled) ? '' : 'disabled'} onclick="CRST_APP.syncInternalPdData(${t.id})">同步内部PD数据</button>
+          </div>
         </div>
         <div class="sync-list-filter">
           <label class="sync-list-filter-label" for="sync_status_${t.id}">状态</label>
@@ -6804,8 +6997,7 @@
   }
 
   function renderOneClickProcessFab(taskId, t) {
-    if (!canShowOneClickProcessBtn(t)) return '';
-    return `<button type="button" class="btn-fab btn-fab-prototype" title="一键处理" aria-label="一键处理" onclick="CRST_APP.oneClickProcessCustomerData(${taskId})"><span class="btn-fab-text">一键</span></button>`;
+    return '';
   }
 
   function renderTaskLogButton(taskId, t, opts = {}) {
@@ -7607,6 +7799,58 @@
       });
   }
 
+  function isPdLgdNoFinCustomer(job, companyName) {
+    const srcTask = getPdLgdSourceTask(job);
+    if (!srcTask || !companyName) return false;
+    const rec = (recordsByTask[srcTask.id] || []).find((r) => r.companyName === companyName);
+    return rec ? recordLacksFinancialData(rec, srcTask) : false;
+  }
+
+  function buildPdLgdFinYearlyData(job, data) {
+    if (!data?.rows?.length) return { years: data?.years || [], rows: [], allScenarios: !!data?.allScenarios };
+    return {
+      ...data,
+      rows: data.rows.filter((r) => !isPdLgdNoFinCustomer(job, r.companyName)),
+    };
+  }
+
+  function buildPdLgdNoFinYearlyData(job, data) {
+    let years = data?.years || [];
+    if (!years.length) {
+      years = getFinTransYearSpan(job, finTransPrimaryScenarioCode(job));
+    }
+    const allScenarios = !!data?.allScenarios;
+    const baselineRows = buildPdLgdNoFinReportRows(job);
+    if (!baselineRows.length) {
+      return { years, rows: [], allScenarios };
+    }
+    let rows = (data?.rows || []).filter((r) => isPdLgdNoFinCustomer(job, r.companyName));
+    const hasRow = (companyName, scenarioCode) => rows.some((r) =>
+      r.companyName === companyName && (allScenarios ? r.scenarioCode === scenarioCode : true));
+    const appendBaselineRow = (b, scenarioCode, scenarioName) => {
+      rows.push({
+        companyName: b.companyName,
+        scenarioCode,
+        scenarioName,
+        pdByYear: Object.fromEntries(years.map((y) => [y, b.pd])),
+        lgdByYear: Object.fromEntries(years.map((y) => [y, b.lgd])),
+      });
+    };
+    if (allScenarios) {
+      const scenarios = getPdLgdScenarioOptions(job);
+      baselineRows.forEach((b) => {
+        scenarios.forEach((code) => {
+          if (!hasRow(b.companyName, code)) appendBaselineRow(b, code, scenarioLabel(code));
+        });
+      });
+    } else {
+      baselineRows.forEach((b) => {
+        if (!hasRow(b.companyName, null)) appendBaselineRow(b, null, null);
+      });
+    }
+    return { years, rows, allScenarios };
+  }
+
   function buildPdLgdAnalysisBundle(job, { scenarioCode, year } = {}) {
     const allPreview = getPdLgdPreviewRows(job);
     let filtered = filterPdLgdPreviewRows(allPreview, { scenarioCode, year });
@@ -7716,24 +7960,85 @@
     ]);
   }
 
-  function buildPdLgdEclCustomerExportRows(rows, showScenario) {
-    return (rows || []).map((r) => {
-      const base = [
-        r.companyName,
-        ...(showScenario ? [r.scenarioName || scenarioLabel(r.scenarioCode)] : []),
-        r.industry,
-        r.pdSource,
-        formatPdValue(r.pdBefore),
-        formatPdValue(r.pdAfter),
-        formatPdValue(r.lgd),
-        formatEclAmount(r.ead),
-        formatEclAmount(r.eclBefore),
-        formatEclAmount(r.eclAfter),
-        formatEclAmount(r.eclDelta),
-        r.testYear != null ? `${r.testYear}年` : '—',
-      ];
-      return base;
+  function buildPdLgdEclCustomerWideRows(flatRows, years) {
+    const spanYears = years || [];
+    const map = new Map();
+    (flatRows || []).forEach((r) => {
+      const key = `${r.companyName}|${r.scenarioCode || ''}`;
+      if (!map.has(key)) {
+        map.set(key, {
+          companyName: r.companyName,
+          scenarioCode: r.scenarioCode,
+          scenarioName: r.scenarioName,
+          industry: r.industry,
+          ead: r.ead,
+          pdBefore: r.pdBefore,
+          eclBefore: r.eclBefore,
+          pdByYear: {},
+          lgdByYear: {},
+          eclByYear: {},
+          lgdFallback: r.lgd,
+        });
+      }
+      const row = map.get(key);
+      if (r.testYear != null) {
+        row.pdByYear[r.testYear] = r.pdAfter ?? r.pdBefore;
+        row.lgdByYear[r.testYear] = r.lgd;
+        row.eclByYear[r.testYear] = r.eclAfter ?? ((r.pdAfter ?? r.pdBefore) * (r.lgd ?? 0) * (r.ead ?? 0));
+      }
     });
+    return [...map.values()].map((row) => {
+      spanYears.forEach((y) => {
+        if (row.pdByYear[y] == null && row.pdBefore != null) row.pdByYear[y] = row.pdBefore;
+        if (row.lgdByYear[y] == null && row.lgdFallback != null) row.lgdByYear[y] = row.lgdFallback;
+        if (row.eclByYear[y] == null && row.pdByYear[y] != null && row.lgdByYear[y] != null) {
+          row.eclByYear[y] = row.pdByYear[y] * row.lgdByYear[y] * (row.ead ?? 0);
+        }
+      });
+      const lastYear = spanYears[spanYears.length - 1];
+      const eclLast = lastYear != null ? row.eclByYear[lastYear] : null;
+      return {
+        companyName: row.companyName,
+        scenarioCode: row.scenarioCode,
+        scenarioName: row.scenarioName,
+        industry: row.industry,
+        ead: row.ead,
+        pdBefore: row.pdBefore,
+        eclBefore: row.eclBefore,
+        pdByYear: row.pdByYear,
+        lgdByYear: row.lgdByYear,
+        eclByYear: row.eclByYear,
+        eclDelta: eclLast != null && row.eclBefore != null ? eclLast - row.eclBefore : null,
+      };
+    });
+  }
+
+  function buildPdLgdEclCustomerExportMeta(rows, years, showScenario) {
+    const headers = [
+      '客户名称',
+      ...(showScenario ? ['情景'] : []),
+      '所属行业',
+      '基期PD',
+      ...years.map((y) => `PD${y}`),
+      ...years.map((y) => `LGD${y}`),
+      'EAD',
+      '基期ECL',
+      ...years.map((y) => `ECL${y}`),
+      'ECL 变化',
+    ];
+    const exportRows = (rows || []).map((r) => [
+      r.companyName,
+      ...(showScenario ? [r.scenarioName || scenarioLabel(r.scenarioCode)] : []),
+      r.industry,
+      formatPdValue(r.pdBefore),
+      ...years.map((y) => formatPdValue(r.pdByYear?.[y])),
+      ...years.map((y) => formatPdValue(r.lgdByYear?.[y])),
+      formatEclAmount(r.ead),
+      formatEclAmount(r.eclBefore),
+      ...years.map((y) => formatEclAmount(r.eclByYear?.[y])),
+      formatEclAmount(r.eclDelta),
+    ]);
+    return { headers, exportRows };
   }
 
   function buildPdLgdIndustryEclExportRows(rows) {
@@ -7787,35 +8092,37 @@
   }
 
   function renderPdLgdEclCustomerTable(job, rows, opts = {}) {
+    const years = opts.years || [];
     const showScenario = opts.showScenario !== false;
     const scenarioHead = showScenario ? '<th>情景</th>' : '';
-    const thead = `<tr><th>客户名称</th>${scenarioHead}<th>所属行业</th><th>PD 来源</th><th class="num">PD(前)</th><th class="num">PD(后)</th><th class="num">LGD</th><th class="num">EAD</th><th class="num">ECL(前)</th><th class="num">ECL(后)</th><th class="num">ECL 变化</th><th>年份</th></tr>`;
-    const colCount = 11 + (showScenario ? 1 : 0);
+    const pdYearHeads = years.map((y) => `<th class="num">PD<sub>${y}</sub></th>`).join('');
+    const lgdYearHeads = years.map((y) => `<th class="num">LGD<sub>${y}</sub></th>`).join('');
+    const eclYearHeads = years.map((y) => `<th class="num">ECL<sub>${y}</sub></th>`).join('');
+    const thead = `<tr><th>客户名称</th>${scenarioHead}<th>所属行业</th><th class="num">基期PD</th>${pdYearHeads}${lgdYearHeads}<th class="num">EAD</th><th class="num">基期ECL</th>${eclYearHeads}<th class="num">ECL 变化</th></tr>`;
+    const colCount = 5 + (showScenario ? 1 : 0) + years.length * 3;
     if (!rows.length) {
-      return `<div class="table-wrap"><table><thead>${thead}</thead><tbody><tr><td colspan="${colCount}" class="empty-cell">当前筛选下暂无 ECL 数据</td></tr></tbody></table></div>`;
+      return `<div class="table-wrap"><table><thead>${thead}</thead><tbody><tr><td colspan="${Math.max(8, colCount)}" class="empty-cell">当前筛选下暂无 ECL 数据</td></tr></tbody></table></div>`;
     }
     return renderFullTable(rows, thead,
       (r) => {
         const scCell = showScenario ? `<td>${esc(r.scenarioName || scenarioLabel(r.scenarioCode))}</td>` : '';
-        const srcTag = r.noFinReport
-          ? `<span class="tag tag-default">${esc(r.pdSource)}</span>`
-          : esc(r.pdSource);
+        const pdYearCells = years.map((y) => `<td class="num">${formatPdValue(r.pdByYear?.[y])}</td>`).join('');
+        const lgdYearCells = years.map((y) => `<td class="num">${formatPdValue(r.lgdByYear?.[y])}</td>`).join('');
+        const eclYearCells = years.map((y) => `<td class="num">${formatEclAmount(r.eclByYear?.[y])}</td>`).join('');
         return `<tr>
           <td>${esc(r.companyName)}</td>
           ${scCell}
           <td>${esc(r.industry)}</td>
-          <td>${srcTag}</td>
           <td class="num">${formatPdValue(r.pdBefore)}</td>
-          <td class="num">${formatPdValue(r.pdAfter)}</td>
-          <td class="num">${formatPdValue(r.lgd)}</td>
+          ${pdYearCells}
+          ${lgdYearCells}
           <td class="num">${formatEclAmount(r.ead)}</td>
           <td class="num">${formatEclAmount(r.eclBefore)}</td>
-          <td class="num">${formatEclAmount(r.eclAfter)}</td>
+          ${eclYearCells}
           <td class="num">${formatEclAmount(r.eclDelta)}</td>
-          <td>${r.testYear != null ? `${r.testYear}年` : '—'}</td>
         </tr>`;
       },
-      colCount);
+      Math.max(8, colCount));
   }
 
   function renderPdLgdIndustryEclSummaryTable(job, rows) {
@@ -7842,10 +8149,9 @@
     const { displayYears, data } = state;
     const bundle = buildPdLgdAnalysisBundle(job, { scenarioCode: '', year: null });
     const showScenarioInEcl = bundle.eclCustomers.some((r) => r.scenarioCode);
-    const showScenarioInYearly = data?.allScenarios;
-    const yearlyTitle = '客户 PD/LGD 年度明细';
+    const yearlyTitle = '有财报客户 PD/LGD 年度明细';
     const industryMultTitle = '行业 PD/LGD 乘数';
-    const noFinTitle = '无财报客户 PD/LGD';
+    const noFinTitle = '无财报客户 PD/LGD 年度明细';
     const eclCustomerTitle = '客户 ECL 明细';
     const industryEclTitle = '行业 ECL 汇总';
 
@@ -7855,8 +8161,18 @@
     const eclCustomerExportId = pdLgdExportId(job, 'eclCustomer', opts);
     const industryEclExportId = pdLgdExportId(job, 'industryEcl', opts);
 
-    if (data?.rows?.length) {
-      const yearlyExport = buildPdLgdYearlyExportMeta(data, displayYears, showScenarioInYearly);
+    const finYearlyData = buildPdLgdFinYearlyData(job, data);
+    const noFinYearlyData = buildPdLgdNoFinYearlyData(job, data);
+    const showScenarioInFinYearly = finYearlyData?.allScenarios;
+    const showScenarioInNoFinYearly = noFinYearlyData?.allScenarios;
+
+    const eclYears = displayYears?.length
+      ? displayYears
+      : getFinTransYearSpan(job, finTransPrimaryScenarioCode(job));
+    const eclCustomerWideRows = buildPdLgdEclCustomerWideRows(bundle.eclCustomers, eclYears);
+
+    if (finYearlyData?.rows?.length) {
+      const yearlyExport = buildPdLgdYearlyExportMeta(finYearlyData, displayYears, showScenarioInFinYearly);
       registerPdLgdTableExport(yearlyExportId, yearlyTitle, yearlyExport.headers, yearlyExport.exportRows);
     } else {
       registerPdLgdTableExport(yearlyExportId, yearlyTitle, ['客户名称'], []);
@@ -7867,21 +8183,18 @@
       ['行业', '客户数', '基期 PD', '压测后 PD', 'PD 乘数', '基期 LGD', '压测后 LGD', 'LGD 乘数'],
       buildPdLgdIndustryMultExportRows(bundle.industryMultipliers),
     );
-    registerPdLgdTableExport(
-      noFinExportId,
-      noFinTitle,
-      ['客户名称', '客户号', '所属行业', 'PD 来源', 'PD', 'LGD 来源', 'LGD'],
-      buildPdLgdNoFinExportRows(bundle.noFinReportRows),
-    );
+    if (noFinYearlyData?.rows?.length) {
+      const noFinExport = buildPdLgdYearlyExportMeta(noFinYearlyData, displayYears, showScenarioInNoFinYearly);
+      registerPdLgdTableExport(noFinExportId, noFinTitle, noFinExport.headers, noFinExport.exportRows);
+    } else {
+      registerPdLgdTableExport(noFinExportId, noFinTitle, ['客户名称'], []);
+    }
+    const eclCustomerExport = buildPdLgdEclCustomerExportMeta(eclCustomerWideRows, eclYears, showScenarioInEcl);
     registerPdLgdTableExport(
       eclCustomerExportId,
       eclCustomerTitle,
-      [
-        '客户名称',
-        ...(showScenarioInEcl ? ['情景'] : []),
-        '所属行业', 'PD 来源', 'PD(前)', 'PD(后)', 'LGD', 'EAD', 'ECL(前)', 'ECL(后)', 'ECL 变化', '年份',
-      ],
-      buildPdLgdEclCustomerExportRows(bundle.eclCustomers, showScenarioInEcl),
+      eclCustomerExport.headers,
+      eclCustomerExport.exportRows,
     );
     registerPdLgdTableExport(
       industryEclExportId,
@@ -7890,12 +8203,17 @@
       buildPdLgdIndustryEclExportRows(bundle.industryEclSummary),
     );
 
-    const yearlyTable = data?.rows?.length
-      ? renderPdLgdYearlyTable(job, data, {
+    const yearlyTable = finYearlyData?.rows?.length
+      ? renderPdLgdYearlyTable(job, finYearlyData, {
         displayYears,
-        showScenarioColumn: showScenarioInYearly,
+        showScenarioColumn: showScenarioInFinYearly,
       })
       : '';
+    const noFinYearlyTable = renderPdLgdYearlyTable(job, noFinYearlyData, {
+      displayYears,
+      showScenarioColumn: showScenarioInNoFinYearly,
+      emptyText: '暂无无财报客户',
+    });
     const yearlySection = yearlyTable ? `
       <section class="pd-lgd-result-block">
         ${renderPdLgdBlockHead(yearlyTitle, yearlyExportId)}
@@ -7913,13 +8231,14 @@
 
       <section class="pd-lgd-result-block">
         ${renderPdLgdBlockHead(noFinTitle, noFinExportId)}
-        ${renderPdLgdNoFinReportTable(job, bundle.noFinReportRows)}
+        ${noFinYearlyTable}
       </section>
 
       <section class="pd-lgd-result-block">
         ${renderPdLgdBlockHead(eclCustomerTitle, eclCustomerExportId)}
-        ${renderPdLgdEclCustomerTable(job, bundle.eclCustomers, {
+        ${renderPdLgdEclCustomerTable(job, eclCustomerWideRows, {
       showScenario: showScenarioInEcl,
+      years: eclYears,
     })}
       </section>
 
@@ -7966,13 +8285,14 @@
     const years = opts.displayYears || data.years || [];
     const rows = data.rows || [];
     const showScenario = opts.showScenarioColumn ?? !!data.allScenarios;
+    const emptyText = opts.emptyText || '当前筛选下暂无 PD/LGD 数据';
     const scenarioHead = showScenario ? '<th rowspan="2">情景</th>' : '';
     const yearGroupHead = years.map((y) => `<th colspan="2" class="num">${y}年</th>`).join('');
     const yearSubHead = years.map(() => '<th class="num">PD</th><th class="num">LGD</th>').join('');
     const thead = `<tr><th rowspan="2">客户名称</th>${scenarioHead}${yearGroupHead}</tr><tr>${yearSubHead}</tr>`;
     const colCount = 1 + (showScenario ? 1 : 0) + years.length * 2;
     if (!rows.length || !years.length) {
-      return `<div class="table-wrap"><table><thead>${thead}</thead><tbody><tr><td colspan="${Math.max(6, colCount)}" class="empty-cell">当前筛选下暂无 PD/LGD 数据</td></tr></tbody></table></div>`;
+      return `<div class="table-wrap"><table><thead>${thead}</thead><tbody><tr><td colspan="${Math.max(6, colCount)}" class="empty-cell">${esc(emptyText)}</td></tr></tbody></table></div>`;
     }
     return renderFullTable(rows, thead,
       (r) => {
@@ -8039,8 +8359,8 @@
     if (!sources.length) {
       return `
         <div class="card">
-          <div class="toolbar"><h2 class="page-title">财务传导</h2></div>
-          <div class="empty fin-trans-empty">暂无财务传导结果。请先在「情景分析」中配置压测情景并执行财务传导。</div>
+          <div class="toolbar"><h2 class="page-title">逐户判定</h2></div>
+          <div class="empty fin-trans-empty">暂无逐户判定结果。请先在「情景分析」中配置压测情景并执行财务传导。</div>
         </div>`;
     }
     const adjustmentTable = job
@@ -8052,7 +8372,7 @@
       : '<div class="empty" style="padding:24px 0">暂无违约调整明细</div>';
     return `
       <div class="card">
-        <div class="toolbar"><h2 class="page-title">财务传导</h2></div>
+        <div class="toolbar"><h2 class="page-title">逐户判定</h2></div>
         ${renderFinTransFilterBar(state)}
         ${adjustmentTable}
       </div>`;
@@ -8196,7 +8516,7 @@
       } else {
         moduleContext = { modulePage: pageId, stressJobId: job.id, embedded: true };
         stressJobDetailStep = meta?.stepIndex ?? 1;
-        taskViewMode = job.status === 'COMPLETED' && !taskEditMode;
+        taskViewMode = pageId !== 'scenario-analysis' && job.status === 'COMPLETED' && !taskEditMode;
         const panel = renderTaskDetail();
         moduleContext.embedded = false;
         body = `
@@ -8303,8 +8623,7 @@
 
   function editStressJob(jobId) {
     if (!getStressJob(jobId)) return;
-    const pageId = isScenarioAnalysisPage() ? 'scenario-analysis' : stressStepPageForIndex(stressJobDetailStep || 1);
-    openStressJob(jobId, pageId, { editMode: true });
+    openStressJob(jobId, 'scenario-analysis', { editMode: true });
   }
 
   function viewStressResults(jobId) {
@@ -8443,6 +8762,9 @@
         creditFetched: false,
         eclFetched: false,
         finTransDone: false,
+        nplProvDone: false,
+        stressPipelineActive: false,
+        stressScenarioParamsSaved: false,
         createdAt: nowStr(),
         updatedAt: nowStr(),
       };
@@ -8475,6 +8797,9 @@
         creditFetched: false,
         eclFetched: false,
         finTransDone: false,
+        nplProvDone: false,
+        stressPipelineActive: false,
+        stressScenarioParamsSaved: false,
         createdAt: nowStr(),
         updatedAt: nowStr(),
       };
@@ -9237,6 +9562,14 @@
   function startSyncInternalPd(id) {
     const t = getTask(id);
     if (!t || t.internalPdDataSynced) return;
+    if (!t.loanDataSynced) {
+      toast('请先同步贷款数据', 'error');
+      return;
+    }
+    if (!t.gelanDataSynced) {
+      toast('请先同步格澜数据', 'error');
+      return;
+    }
     if (!hasTaskFinancialDataSynced(t)) {
       toast('请先同步财务数据', 'error');
       return;
@@ -9494,12 +9827,11 @@
     return !!(t.creditFetched && t.eclFetched);
   }
 
-  function runScenarioStress(id) {
+  function saveScenarioStressParams(id) {
     const t = resolveEntity(id);
     if (!t || !isStressJobEntity(t)) return;
-    const canRun = canEditStressSection(t, 1) || (t.status === 'COMPLETED' && taskEditMode);
-    if (!canRun) {
-      toast('当前不可执行压测', 'error');
+    if (!canEditScenarioAnalysisConfig(t)) {
+      toast('当前不可保存压测参数', 'error');
       return;
     }
     const selectedCodes = selectedScenarioCodes(id);
@@ -9507,19 +9839,148 @@
     t.selectedScenarioCodes = selectedCodes;
     const saved = persistStressParamsFromDom(id, t, selectedCodes);
     if (!saved.ok) { toast(saved.msg, 'error'); return; }
-    t.finTransDone = true;
+    t.stressScenarioParamsSaved = true;
+    t.stressPipelineActive = true;
+    t._stressScenarioParamsSnapshot = {
+      selectedScenarioCodes: [...selectedCodes],
+      stressCommonParams: { ...t.stressCommonParams },
+      stressScenarioParams: JSON.parse(JSON.stringify(t.stressScenarioParams || {})),
+    };
+    if (taskEditMode && isScenarioAnalysisPage()) {
+      taskEditMode = false;
+    }
     t.updatedAt = nowStr();
-    computeFinTransResults(id);
-    fetchCredit(id, { silent: true });
-    fetchEcl(id, { silent: true });
-    addStressJobLog(id, `情景分析：开始执行压测（${selectedCodes.length} 个情景）`);
-    runStress(id, { skipPermissionCheck: true, navigateToResults: true });
+    addStressJobLog(id, `情景分析：已保存压测情景与公共参数（${selectedCodes.length} 个情景）`);
+    toast('压测情景与公共参数已保存，可执行下方计算步骤');
+    render();
   }
 
-  function runFinTrans(id) {
+  function markStressScenarioParamsDirty(id) {
     const t = resolveEntity(id);
     if (!t || !isStressJobEntity(t)) return;
-    if (!canEditStressSection(t, 1)) {
+    if (t.stressScenarioParamsSaved === false) return;
+    if (!isStressScenarioParamsSaved(t)) return;
+    t.stressScenarioParamsSaved = false;
+    render();
+  }
+
+  function editScenarioStressParams(id) {
+    const t = resolveEntity(id);
+    if (!t || !isStressJobEntity(t)) return;
+    if (!canEditScenarioAnalysisConfig(t)) {
+      toast('当前不可编辑压测参数', 'error');
+      return;
+    }
+    t.stressScenarioParamsSaved = false;
+    render();
+  }
+
+  function cancelScenarioStressParams(id) {
+    const t = resolveEntity(id);
+    if (!t || !isStressJobEntity(t)) return;
+    if (t._stressScenarioParamsSnapshot && !isStressScenarioParamsSaved(t)) {
+      const snap = t._stressScenarioParamsSnapshot;
+      t.selectedScenarioCodes = [...(snap.selectedScenarioCodes || [])];
+      t.stressCommonParams = { ...(snap.stressCommonParams || {}) };
+      t.stressScenarioParams = JSON.parse(JSON.stringify(snap.stressScenarioParams || {}));
+      t.stressScenarioParamsSaved = true;
+      taskEditMode = false;
+      render();
+      return;
+    }
+    if (taskEditMode) {
+      cancelEditTask();
+    }
+    backToStressJobList('scenario-analysis');
+  }
+
+  function runScenarioStress(id) {
+    saveScenarioStressParams(id);
+  }
+
+  function runStressPipelineStep(id, stepKey) {
+    switch (stepKey) {
+      case 'finTrans':
+        runStressPipelineFinTrans(id);
+        break;
+      case 'nplProv':
+        runStressPipelineNplProv(id);
+        break;
+      case 'pdLgd':
+        runStressPipelinePdLgd(id);
+        break;
+      case 'results':
+        runStressPipelineResults(id);
+        break;
+      default:
+        break;
+    }
+  }
+
+  function canRunScenarioPipelineAction(id) {
+    const t = resolveEntity(id);
+    if (!t || !isStressJobEntity(t)) return false;
+    if (!isStressScenarioParamsSaved(t)) return false;
+    return canEditScenarioAnalysisConfig(t);
+  }
+
+  function runStressPipelineFinTrans(id) {
+    if (!canRunScenarioPipelineAction(id)) {
+      toast(isStressScenarioParamsSaved(resolveEntity(id)) ? '当前不可执行逐户判定' : '请先保存上方压测情景与公共参数', 'error');
+      return;
+    }
+    runFinTrans(id, { skipPermissionCheck: true });
+  }
+
+  function runStressPipelineNplProv(id) {
+    const t = resolveEntity(id);
+    if (!t || !isStressJobEntity(t)) return;
+    if (!canRunScenarioPipelineAction(id)) {
+      toast('当前不可执行不良和拨备计算', 'error');
+      return;
+    }
+    const selectedCodes = selectedScenarioCodes(id);
+    if (!selectedCodes.length) { toast('请至少选择一个压测情景', 'error'); return; }
+    t.selectedScenarioCodes = selectedCodes;
+    const saved = persistStressParamsFromDom(id, t, selectedCodes);
+    if (!saved.ok) { toast(saved.msg, 'error'); return; }
+    t.nplProvDone = true;
+    t.updatedAt = nowStr();
+    addStressJobLog(id, '不良和拨备计算：已完成违约识别与拨备测算');
+    toast('不良和拨备计算已完成');
+    render();
+  }
+
+  function runStressPipelinePdLgd(id) {
+    const t = resolveEntity(id);
+    if (!t || !isStressJobEntity(t)) return;
+    if (!canRunScenarioPipelineAction(id)) {
+      toast('当前不可执行 PD/LGD 计算', 'error');
+      return;
+    }
+    fetchCredit(id, { silent: false });
+    fetchEcl(id, { silent: false });
+    t.updatedAt = nowStr();
+    addStressJobLog(id, 'PD/LGD 计算：已调取信贷台账并完成 ECL 计量');
+    toast('PD/LGD 计算已完成');
+    render();
+  }
+
+  function runStressPipelineResults(id) {
+    const t = resolveEntity(id);
+    if (!t || !isStressJobEntity(t)) return;
+    if (!canRunScenarioPipelineAction(id)) {
+      toast('当前不可执行压测结果分析', 'error');
+      return;
+    }
+    addStressJobLog(id, '压测结果分析：开始生成压测结果');
+    runStress(id, { skipPermissionCheck: true, navigateToResults: false });
+  }
+
+  function runFinTrans(id, options = {}) {
+    const t = resolveEntity(id);
+    if (!t || !isStressJobEntity(t)) return;
+    if (!options.skipPermissionCheck && !canEditStressSection(t, 1)) {
       toast('当前不可编辑财务传导', 'error');
       return;
     }
@@ -9736,15 +10197,19 @@
       const logDone = `压测结果：场景压测完成，已生成 ${list.length} 行结果（${minStart}-${maxEnd}年，${scenarioCodes.length}个情景${sampleLimit < calcRecs.length ? `；抽样 ${sampleLimit}/${calcRecs.length} 条` : ''}）`;
       if (isJob) {
         addStressJobLog(id, logDone);
-        taskEditMode = false;
-        taskViewMode = true;
-        toast('压测已完成');
         window._resultStressJobId = id;
         window._resultSourceKey = `job-${id}`;
         window._resultTaskId = t.sourceTaskId || null;
+        toast('压测已完成');
         if (options.navigateToResults) {
+          taskEditMode = false;
+          taskViewMode = true;
           navigate('results');
         } else {
+          if (!isScenarioAnalysisPage()) {
+            taskEditMode = false;
+            taskViewMode = true;
+          }
           render();
         }
       } else {
@@ -10309,7 +10774,7 @@
     openStressJob, backToStressJobList, openCreateStressJobModal, setStressJobStep,
     onStressJobSourceChange, mockPickStressImportFile, confirmCreateStressJob,
     editStressJob, viewStressJob, viewStressResults, viewStressJobOriginalData, deleteStressJob,
-    runFinTrans, runScenarioStress, runPdLgdCalc, openReleaseNotes,
+    runFinTrans, runScenarioStress, saveScenarioStressParams, editScenarioStressParams, cancelScenarioStressParams, markStressScenarioParamsDirty, runStressPipelineStep, runPdLgdCalc, openReleaseNotes,
     editTask,
     confirmDeleteTask: executeConfirmDelete, cancelDeleteTask: cancelConfirmDelete,
     executeConfirmDelete, cancelConfirmDelete,
@@ -10317,7 +10782,7 @@
     onStressPurposeChange, onIndustrySearchInput, onIndustrySelectAll, onIndustryClearAll, onIndustryCheckClick, onIndustryItemClick,
     startSync, syncAirportThroughput, confirmList, excludeRecord, setSyncStatusFilter,
     saveSyncFilters, openExcludeCustomerModal, toggleExcludeAll, confirmExcludeCustomers,
-    openIndustryDisambigModal, saveIndustryDisambig,
+    openIndustryDisambigModal, openIndustryEditModal, saveIndustryDisambig,
     exportDataProcessOffline, openDataProcessImportModal, mockPickDataProcessImportFile, confirmDataProcessImport,
     oneClickProcessCustomerData,
     openGhgEmissionEditModal, onGhgAccountedSelectChange, saveGhgEmissionEdits,

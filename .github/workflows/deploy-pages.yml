@@ -33,7 +33,7 @@ jobs:
           <head>
             <meta charset="UTF-8" />
             <meta http-equiv="refresh" content="0;url=./index-full.html" />
-            <title>华夏银行气候风险压测</title>
+            <title>气候风险压测</title>
             <script>location.replace('./index-full.html');</script>
           </head>
           <body>

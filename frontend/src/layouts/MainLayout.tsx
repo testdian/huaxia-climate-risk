@@ -73,7 +73,7 @@ export default function MainLayout() {
             height: tokens.layout.headerHeight,
           }}
         >
-          <Typography.Text type="secondary">华夏银行绿金系统</Typography.Text>
+          <Typography.Text type="secondary">气候风险压测系统</Typography.Text>
           <Typography.Text>总行管理员</Typography.Text>
         </Header>
         <Content style={{ margin: 16, minHeight: 280 }}>

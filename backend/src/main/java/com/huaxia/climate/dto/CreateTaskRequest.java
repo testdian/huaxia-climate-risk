@@ -5,8 +5,8 @@ import lombok.Data;
 @Data
 public class CreateTaskRequest {
     private String taskName;
-    private String reportPeriodStart;
-    private String reportPeriodEnd;
-    private String dataCaliber;
+    private Integer reportYear;
+    private String loanType;
+    private String loanRegion;
     private String description;
 }

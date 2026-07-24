@@ -18,7 +18,7 @@ spring:
         format_sql: true
     open-in-view: false
 
-# 绿金系统登录/权限/日志由主系统承接，本模块仅透传当前用户标识（开发态 mock）
+# 主系统登录/权限/日志由平台承接，本模块仅透传当前用户标识（开发态 mock）
 app:
   mock-user-id: HQ_ADMIN_001
   mock-user-name: 总行管理员

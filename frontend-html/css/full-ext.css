@@ -268,7 +268,8 @@ body.drawer-open {
   color: #fff;
 }
 
-.fin-sync-table thead .th-sub {
+.fin-sync-table thead th.th-sub {
+  display: table-cell;
   background: #eef2f8;
   color: #1f2937;
   font-weight: 500;
@@ -1248,6 +1249,17 @@ body.drawer-open {
   margin-top: 16px;
 }
 
+.stress-param-card--common.stress-param-card--locked .input:disabled {
+  background-color: #ececec;
+  color: #8c8c8c;
+  border-color: #d9d9d9;
+  cursor: not-allowed;
+}
+
+.stress-param-card--common.stress-param-card--locked .form-row label {
+  color: #8c8c8c;
+}
+
 .stress-param-common-hint {
   margin: -4px 0 12px;
   font-size: 12px;
@@ -1742,6 +1754,34 @@ body.drawer-open {
   color: #fff;
 }
 
+.menu-level-1--group {
+  gap: 12px;
+  justify-content: flex-start;
+  cursor: pointer;
+}
+
+.menu-level-1--group .menu-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.menu-level-1--group .menu-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.menu-level-1--group .menu-level-text {
+  flex: 1;
+}
+
+.menu-level-1--group .menu-chevron {
+  margin-left: auto;
+}
+
 .app.sider-collapsed .menu-level-1--nav {
   justify-content: center;
   padding: 12px 0;
@@ -1850,7 +1890,7 @@ body.drawer-open {
 }
 
 .app.sider-collapsed .sider-head .sider-logo::after {
-  content: '绿金';
+  content: '压测';
   font-size: 11px;
   font-weight: 600;
   color: rgba(255,255,255,.85);
@@ -2777,7 +2817,7 @@ body.drawer-open {
   flex-shrink: 0;
 }
 
-.table-wrap thead .th-sub {
+.table-wrap thead th .th-sub {
   display: block;
   font-size: 12px;
   font-weight: 500;
@@ -2906,6 +2946,32 @@ body.drawer-open {
   gap: 8px;
 }
 
+.sync-action-toolbar {
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.sync-action-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sync-action-index {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: var(--white);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
 .customer-basic-toolbar {
   justify-content: space-between;
   align-items: center;
@@ -2935,6 +3001,30 @@ body.drawer-open {
 }
 
 .btn-prototype:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.btn-edit-highlight {
+  background: #fa8c16;
+  border-color: #fa8c16;
+  color: #fff;
+  font-weight: 500;
+}
+
+.btn-edit-highlight:hover:not(:disabled) {
+  background: #d46b08;
+  border-color: #d46b08;
+  color: #fff;
+}
+
+.btn-edit-highlight:active:not(:disabled) {
+  background: #ad4e00;
+  border-color: #ad4e00;
+  color: #fff;
+}
+
+.btn-edit-highlight:disabled {
   opacity: 0.55;
   cursor: not-allowed;
 }
@@ -3629,4 +3719,193 @@ body.drawer-open {
   color: var(--brand, #34776b);
   cursor: pointer;
   text-decoration: underline;
+}
+
+.stress-pipeline-panel {
+  margin-top: 20px;
+  padding: 16px 18px 18px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fafbfc;
+}
+
+.stress-scenario-config-section {
+  margin-bottom: 0;
+}
+
+.stress-scenario-save-toolbar {
+  margin-top: 12px;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.stress-scenario-save-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.scenario-checkbox-group--locked {
+  opacity: 0.72;
+}
+
+.scenario-checkbox-group--locked label {
+  color: #8c8c8c;
+}
+
+.stress-params-save-hint {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.stress-params-save-hint.is-pending {
+  color: #d46b08;
+}
+
+.stress-params-save-hint.is-saved {
+  color: #00695c;
+}
+
+.stress-pipeline-panel--below-params {
+  margin-top: 16px;
+  margin-bottom: 16px;
+}
+
+.scenario-analysis-back-toolbar {
+  margin-top: 20px;
+  justify-content: flex-start;
+}
+
+.stress-pipeline-head {
+  margin-bottom: 14px;
+}
+
+.stress-pipeline-title {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.stress-pipeline-sub,
+.stress-pipeline-panel .stress-step-hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.stress-pipeline-track {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+}
+
+.stress-pipeline-step {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--white);
+}
+
+.stress-pipeline-step--done {
+  border-color: rgba(52, 119, 107, 0.35);
+  background: #f4faf8;
+}
+
+.stress-pipeline-step--ready {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px rgba(52, 119, 107, 0.08);
+}
+
+.stress-pipeline-step--pending {
+  opacity: 0.92;
+}
+
+.stress-pipeline-step-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-height: 44px;
+}
+
+.stress-pipeline-index {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--white);
+  flex-shrink: 0;
+}
+
+.stress-pipeline-step--done .stress-pipeline-index,
+.stress-pipeline-step--ready .stress-pipeline-index {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--white);
+}
+
+.stress-pipeline-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.stress-pipeline-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.stress-pipeline-badge {
+  font-size: 12px;
+  color: #00695c;
+}
+
+.stress-pipeline-hint {
+  font-size: 12px;
+  color: var(--text-disabled);
+}
+
+.stress-pipeline-run {
+  align-self: stretch;
+  justify-content: center;
+}
+
+.stress-pipeline-line {
+  width: 18px;
+  align-self: center;
+  height: 2px;
+  background: var(--border);
+  flex-shrink: 0;
+}
+
+@media (max-width: 1200px) {
+  .stress-pipeline-track {
+    flex-direction: column;
+  }
+
+  .stress-pipeline-line {
+    width: auto;
+    height: 14px;
+    margin: 0 auto;
+    border-left: 2px solid var(--border);
+    background: transparent;
+  }
 }

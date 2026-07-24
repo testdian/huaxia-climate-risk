@@ -80,8 +80,12 @@ export default function TaskDetailPage() {
       <Card loading={loading}>
         <Descriptions column={3} bordered size="small">
           <Descriptions.Item label="任务编号">{task?.taskCode}</Descriptions.Item>
-          <Descriptions.Item label="报告期">
-            {task?.reportPeriodStart} ~ {task?.reportPeriodEnd}
+          <Descriptions.Item label="报告年度">{task?.reportYear}</Descriptions.Item>
+          <Descriptions.Item label="贷款类型">
+            {task?.loanType === 'CORPORATE' ? '对公' : task?.loanType === 'PERSONAL' ? '个人' : task?.loanType}
+          </Descriptions.Item>
+          <Descriptions.Item label="贷款地区">
+            {task?.loanRegion === 'DOMESTIC' ? '境内' : task?.loanRegion === 'OVERSEAS' ? '境外' : task?.loanRegion}
           </Descriptions.Item>
           <Descriptions.Item label="状态">{task?.status}</Descriptions.Item>
         </Descriptions>

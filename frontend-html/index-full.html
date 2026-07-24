@@ -3,16 +3,16 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>气候风险压测（完整版）- 华夏银行绿金系统</title>
+  <title>气候风险压测（完整版）</title>
   <link rel="stylesheet" href="css/theme.css?v=20260726c" />
-  <link rel="stylesheet" href="css/full-ext.css?v=20260726e" />
+  <link rel="stylesheet" href="css/full-ext.css?v=20260727u" />
 </head>
 <body class="app-body">
   <div class="app" id="appRoot">
     <aside class="sider" id="sider">
       <div class="sider-head">
         <div class="sider-logo">
-          <span class="logo-text">华夏银行绿金系统</span>
+          <span class="logo-text">气候风险压测系统</span>
         </div>
       </div>
       <nav class="sider-body">
@@ -29,28 +29,31 @@
               <span class="menu-level-text">情景分析</span>
             </button>
           </li>
+          <li class="menu-section" data-section="fin-trans">
+            <button type="button" class="menu-level-1 menu-level-1--group" aria-expanded="false" title="财务传导">
+              <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4"/></svg></span>
+              <span class="menu-level-text">财务传导</span>
+              <span class="menu-chevron" aria-hidden="true"></span>
+            </button>
+            <ul class="menu-sub">
+              <li><a data-page="stress-fin-trans" title="逐户判定">
+                <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg></span>
+                <span class="menu-text">逐户判定</span>
+              </a></li>
+              <li><a data-page="stress-npl-prov" title="不良和拨备计算">
+                <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></span>
+                <span class="menu-text">不良和拨备计算</span>
+              </a></li>
+              <li><a data-page="stress-pd-lgd" title="PD/LGD计算">
+                <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19h16M4 15l4-8 4 5 4-9 4 12"/></svg></span>
+                <span class="menu-text">PD/LGD计算</span>
+              </a></li>
+            </ul>
+          </li>
           <li class="menu-section menu-section--nav" data-section="results">
             <button type="button" class="menu-level-1 menu-level-1--nav" data-nav-page="results" title="压测结果分析">
               <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 20V10M12 20V4M6 20v-6"/></svg></span>
               <span class="menu-level-text">压测结果分析</span>
-            </button>
-          </li>
-          <li class="menu-section menu-section--nav" data-section="stress-fin-trans">
-            <button type="button" class="menu-level-1 menu-level-1--nav" data-nav-page="stress-fin-trans" title="财务传导">
-              <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4"/></svg></span>
-              <span class="menu-level-text">财务传导</span>
-            </button>
-          </li>
-          <li class="menu-section menu-section--nav" data-section="stress-npl-prov">
-            <button type="button" class="menu-level-1 menu-level-1--nav" data-nav-page="stress-npl-prov" title="不良和拨备计算">
-              <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></span>
-              <span class="menu-level-text">不良和拨备计算</span>
-            </button>
-          </li>
-          <li class="menu-section menu-section--nav" data-section="stress-pd-lgd">
-            <button type="button" class="menu-level-1 menu-level-1--nav" data-nav-page="stress-pd-lgd" title="PD/LGD计算">
-              <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19h16M4 15l4-8 4 5 4-9 4 12"/></svg></span>
-              <span class="menu-level-text">PD/LGD计算</span>
             </button>
           </li>
           <li class="menu-section menu-section--nav" data-section="exports">
@@ -271,7 +274,7 @@
   <!-- 数据处理：导入线下处理结果 -->
   <div class="modal-mask" id="modalDataProcessImport">
     <div class="modal">
-      <div class="modal-hd">导入线下处理结果</div>
+      <div class="modal-hd">导入客户基础信息</div>
       <div class="modal-bd">
         <p class="modal-desc">上传经线下编辑的 Excel 文件，字段需与「导出全部数据」模板一致（含标准行业、收入、成本收入比等可填列）。</p>
         <div class="toolbar" style="margin-top:12px">
@@ -376,13 +379,13 @@
   <!-- v0.4：行业歧义甄别 -->
   <div class="modal-mask" id="modalIndustryDisambig">
     <div class="modal modal-lg">
-      <div class="modal-hd">行业歧义甄别确认</div>
+      <div class="modal-hd">编辑行业</div>
       <div class="modal-bd">
         <div id="disambigBody"></div>
       </div>
       <div class="modal-ft">
         <button class="btn btn-default" onclick="CRST_APP.hideModal()">取消</button>
-        <button class="btn btn-primary" onclick="CRST_APP.saveIndustryDisambig()">确认甄别结果</button>
+        <button class="btn btn-primary" onclick="CRST_APP.saveIndustryDisambig()">确认</button>
       </div>
     </div>
   </div>
@@ -531,6 +534,6 @@
   <script src="js/industry-selector-data.js"></script>
   <script src="js/release-notes.js?v=20260718u"></script>
   <script src="js/store-full.js?v=20260726a"></script>
-  <script src="js/app-full.js?v=20260726r"></script>
+  <script src="js/app-full.js?v=20260727t"></script>
 </body>
 </html>

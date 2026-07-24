@@ -53,9 +53,9 @@ public class TaskService {
         StressTestTask task = new StressTestTask();
         task.setTaskCode("CRST" + System.currentTimeMillis());
         task.setTaskName(req.getTaskName());
-        task.setReportPeriodStart(LocalDate.parse(req.getReportPeriodStart()));
-        task.setReportPeriodEnd(LocalDate.parse(req.getReportPeriodEnd()));
-        task.setDataCaliber(req.getDataCaliber());
+        task.setReportYear(req.getReportYear());
+        task.setLoanType(req.getLoanType());
+        task.setLoanRegion(req.getLoanRegion());
         task.setDescription(req.getDescription());
         task.setStatus("DRAFT");
         task.setCreatedBy(appProperties.getMockUserId());
