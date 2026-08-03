@@ -3733,6 +3733,24 @@ body.drawer-open {
   margin-bottom: 0;
 }
 
+.stress-scenario-check-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.stress-scenario-check-row .scenario-checkbox-group {
+  flex: 1;
+  min-width: 0;
+}
+
+.stress-scenario-import-btn {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
 .stress-scenario-save-toolbar {
   margin-top: 12px;
   align-items: center;

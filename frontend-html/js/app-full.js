@@ -97,6 +97,8 @@
   let pendingGhgEditTaskId = null;
   let pendingInternalPdImportTaskId = null;
   let internalPdImportFilePicked = false;
+  let pendingScenarioParamsImportJobId = null;
+  let scenarioParamsImportFilePicked = false;
   let bankBasicImportFilePicked = false;
   let pendingConfirmDeleteFn = null;
   let toastTimer = null;
@@ -4973,7 +4975,10 @@
         return `
         <div class="stress-scenario-config-section">
           <h4 class="step-subtitle step-panel-title-divider">压测情景</h4>
-          <div class="checkbox-group scenario-checkbox-group${scenarioChecksLocked ? ' scenario-checkbox-group--locked' : ''}">${checks || '<span class="scenario-check-empty">无已生效压测情景，请联系管理员配置。</span>'}</div>
+          <div class="stress-scenario-check-row">
+            <div class="checkbox-group scenario-checkbox-group${scenarioChecksLocked ? ' scenario-checkbox-group--locked' : ''}">${checks || '<span class="scenario-check-empty">无已生效压测情景，请联系管理员配置。</span>'}</div>
+            ${canEditScenarioConfig ? `<button type="button" class="btn btn-default stress-scenario-import-btn" onclick="CRST_APP.openScenarioParamsImportModal(${entityId})">导入情景参数</button>` : ''}
+          </div>
           ${commonParamHtml || ''}
           ${canEditScenarioConfig ? `
           <div class="toolbar stress-scenario-save-toolbar">
@@ -9875,6 +9880,75 @@
     render();
   }
 
+  function buildMockImportedScenarioParams(t) {
+    const selectedCodes = scenariosForJob().map((s) => s.scenarioCode);
+    const reportYear = getTaskReportYear(t);
+    const startYear = Number.isFinite(reportYear) ? Math.max(reportYear + 1, 2026) : 2026;
+    const endYear = 2040;
+    const stressCommonParams = {
+      startYear,
+      endYear,
+      industryGrowthRate: 0.02,
+      revenueGrowth: 0.02,
+      freeQuotaStart: 0.95,
+      freeQuotaEnd: 0.70,
+    };
+    const stressScenarioParams = {};
+    selectedCodes.forEach((code) => {
+      const defaults = defaultStressParams(t, code);
+      stressScenarioParams[code] = pickScenarioSpecificParams({
+        ...defaults,
+        ...stressCommonParams,
+      });
+    });
+    return { selectedScenarioCodes: selectedCodes, stressCommonParams, stressScenarioParams };
+  }
+
+  function openScenarioParamsImportModal(jobId) {
+    const t = resolveEntity(jobId);
+    if (!t || !isStressJobEntity(t)) return;
+    if (!canEditScenarioAnalysisConfig(t)) {
+      toast('当前不可导入情景参数', 'error');
+      return;
+    }
+    pendingScenarioParamsImportJobId = jobId;
+    scenarioParamsImportFilePicked = false;
+    const hint = document.getElementById('scenario_params_import_hint');
+    if (hint) hint.textContent = '未选择文件';
+    showModal('modalScenarioParamsImport');
+  }
+
+  function mockPickScenarioParamsImportFile() {
+    scenarioParamsImportFilePicked = true;
+    const hint = document.getElementById('scenario_params_import_hint');
+    if (hint) hint.textContent = '已选择：压测情景与公共参数导入模板.xlsx';
+  }
+
+  function confirmScenarioParamsImport() {
+    const jobId = pendingScenarioParamsImportJobId;
+    if (!jobId) return;
+    if (!scenarioParamsImportFilePicked) { toast('请先选择 Excel 文件', 'error'); return; }
+    const t = resolveEntity(jobId);
+    if (!t || !canEditScenarioAnalysisConfig(t)) {
+      hideModal();
+      pendingScenarioParamsImportJobId = null;
+      scenarioParamsImportFilePicked = false;
+      return;
+    }
+    const imported = buildMockImportedScenarioParams(t);
+    t.selectedScenarioCodes = imported.selectedScenarioCodes;
+    t.stressCommonParams = imported.stressCommonParams;
+    t.stressScenarioParams = imported.stressScenarioParams;
+    t.stressScenarioParamsSaved = false;
+    t.updatedAt = nowStr();
+    addStressJobLog(jobId, `情景分析：导入压测情景与公共参数（${imported.selectedScenarioCodes.length} 个情景）`);
+    hideModal();
+    pendingScenarioParamsImportJobId = null;
+    scenarioParamsImportFilePicked = false;
+    toast('情景参数已导入，请确认后保存');
+    render();
+  }
+
   function cancelScenarioStressParams(id) {
     const t = resolveEntity(id);
     if (!t || !isStressJobEntity(t)) return;
@@ -10774,7 +10848,9 @@
     openStressJob, backToStressJobList, openCreateStressJobModal, setStressJobStep,
     onStressJobSourceChange, mockPickStressImportFile, confirmCreateStressJob,
     editStressJob, viewStressJob, viewStressResults, viewStressJobOriginalData, deleteStressJob,
-    runFinTrans, runScenarioStress, saveScenarioStressParams, editScenarioStressParams, cancelScenarioStressParams, markStressScenarioParamsDirty, runStressPipelineStep, runPdLgdCalc, openReleaseNotes,
+    runFinTrans, runScenarioStress, saveScenarioStressParams, editScenarioStressParams, cancelScenarioStressParams,
+    openScenarioParamsImportModal, mockPickScenarioParamsImportFile, confirmScenarioParamsImport,
+    markStressScenarioParamsDirty, runStressPipelineStep, runPdLgdCalc, openReleaseNotes,
     editTask,
     confirmDeleteTask: executeConfirmDelete, cancelDeleteTask: cancelConfirmDelete,
     executeConfirmDelete, cancelConfirmDelete,

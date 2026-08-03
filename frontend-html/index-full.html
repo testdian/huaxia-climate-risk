@@ -302,6 +302,24 @@
     </div>
   </div>
 
+  <!-- 情景分析：导入压测情景与公共参数 -->
+  <div class="modal-mask" id="modalScenarioParamsImport">
+    <div class="modal">
+      <div class="modal-hd">导入情景参数</div>
+      <div class="modal-bd">
+        <p class="modal-desc">上传 Excel 文件，导入压测情景勾选结果及公共参数（起始年份、结束年份、免费配额比例等）。表头请参考《情景参数表》。导入后请核对参数并点击「保存」。</p>
+        <div class="toolbar" style="margin-top:12px">
+          <button type="button" class="btn btn-default" onclick="CRST_APP.mockPickScenarioParamsImportFile()">选择 Excel 文件</button>
+          <span class="flow-hint" id="scenario_params_import_hint">未选择文件</span>
+        </div>
+      </div>
+      <div class="modal-ft">
+        <button class="btn btn-default" onclick="CRST_APP.hideModal()">取消</button>
+        <button class="btn btn-primary" onclick="CRST_APP.confirmScenarioParamsImport()">确认导入</button>
+      </div>
+    </div>
+  </div>
+
   <!-- 导入无财务数据客户内部 PD/LGD -->
   <div class="modal-mask" id="modalInternalPdImport">
     <div class="modal">
@@ -532,8 +550,8 @@
 
   <script src="js/carbon-calculation-logic.js?v=20260726b"></script>
   <script src="js/industry-selector-data.js"></script>
-  <script src="js/release-notes.js?v=20260718u"></script>
+  <script src="js/release-notes.js?v=20260803a"></script>
   <script src="js/store-full.js?v=20260726a"></script>
-  <script src="js/app-full.js?v=20260727t"></script>
+  <script src="js/app-full.js?v=20260803b"></script>
 </body>
 </html>

@@ -5,8 +5,22 @@
  */
 (function () {
   window.CRST_RELEASE_NOTES = {
-    current: '1.0',
+    current: '1.1',
     versions: [
+      {
+        version: '1.1',
+        date: '2026-08-03',
+        updatedAt: '2026-08-03',
+        title: '情景分析导入情景参数',
+        description: '情景分析页增加导入情景参数按钮，表头请参考《情景参数表》。',
+        items: [
+          '情景分析页增加「导入情景参数」按钮，支持通过 Excel 导入压测情景勾选及公共参数。',
+          '导入文件表头请参考《情景参数表》。',
+        ],
+        menus: ['情景分析'],
+        features: ['导入情景参数'],
+        screenshots: [],
+      },
       {
         version: '1.0',
         date: '2026-07-17',
