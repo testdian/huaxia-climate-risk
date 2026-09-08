@@ -3927,3 +3927,6 @@ body.drawer-open {
     background: transparent;
   }
 }
+.v11-rule-note{margin:10px 0 14px;padding:10px 14px;border-left:4px solid #1677ff;background:#f0f7ff;color:#30445f;line-height:1.7;border-radius:4px}
+.menu-section[data-section="fin-trans"]{display:none!important}
+.scenario-combination-item{display:flex!important;align-items:center;justify-content:space-between;gap:12px;min-width:310px}.scenario-ccus-modes{display:inline-flex;gap:6px}.scenario-ccus-modes em{font-style:normal;font-size:12px;color:#174d96;background:#f0f7ff;border:1px solid #b7cff7;border-radius:10px;padding:2px 8px}

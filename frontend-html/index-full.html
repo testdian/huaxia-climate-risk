@@ -3,16 +3,16 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>气候风险压测（完整版）</title>
+  <title>气候风险投融资压测系统 v1.1</title>
   <link rel="stylesheet" href="css/theme.css?v=20260726c" />
-  <link rel="stylesheet" href="css/full-ext.css?v=20260727u" />
+  <link rel="stylesheet" href="css/full-ext.css?v=20260908a" />
 </head>
 <body class="app-body">
   <div class="app" id="appRoot">
     <aside class="sider" id="sider">
       <div class="sider-head">
         <div class="sider-logo">
-          <span class="logo-text">气候风险压测系统</span>
+          <span class="logo-text">气候风险投融资压测系统</span>
         </div>
       </div>
       <nav class="sider-body">
@@ -24,12 +24,12 @@
             </button>
           </li>
           <li class="menu-section menu-section--nav" data-section="scenario-analysis">
-            <button type="button" class="menu-level-1 menu-level-1--nav" data-nav-page="scenario-analysis" title="情景分析">
+            <button type="button" class="menu-level-1 menu-level-1--nav" data-nav-page="scenario-analysis" title="分项计算">
               <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19h16M4 15l4-8 4 5 4-9 4 12"/></svg></span>
-              <span class="menu-level-text">情景分析</span>
+              <span class="menu-level-text">分项计算</span>
             </button>
           </li>
-          <li class="menu-section" data-section="fin-trans">
+          <li class="menu-section" data-section="fin-trans" style="display:none">
             <button type="button" class="menu-level-1 menu-level-1--group" aria-expanded="false" title="财务传导">
               <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4"/></svg></span>
               <span class="menu-level-text">财务传导</span>
@@ -57,9 +57,15 @@
             </button>
           </li>
           <li class="menu-section menu-section--nav" data-section="exports">
-            <button type="button" class="menu-level-1 menu-level-1--nav" data-nav-page="exports" title="导出记录">
+            <button type="button" class="menu-level-1 menu-level-1--nav" data-nav-page="exports" title="数据导出">
               <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg></span>
-              <span class="menu-level-text">导出记录</span>
+              <span class="menu-level-text">数据导出</span>
+            </button>
+          </li>
+          <li class="menu-section menu-section--nav" data-section="risk-warning">
+            <button type="button" class="menu-level-1 menu-level-1--nav" onclick="CRST_APP.navigate('results')" title="风险预警">
+              <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01M10.3 3.7L2.4 17.4A2 2 0 004.1 20h15.8a2 2 0 001.7-3L13.7 3.7a2 2 0 00-3.4 0z"/></svg></span>
+              <span class="menu-level-text">风险预警</span>
             </button>
           </li>
           <li class="menu-section open" data-section="config">
@@ -99,7 +105,7 @@
       <header class="app-header" id="appHeader">
         <div class="app-header-left"></div>
         <div class="app-header-actions">
-          <span class="app-version-badge" id="appVersionBadge" title="当前原型版本">v1.0</span>
+          <span class="app-version-badge" id="appVersionBadge" title="当前原型版本">v1.1</span>
           <button type="button" class="btn btn-default btn-sm app-release-notes-btn" id="btnReleaseNotes" onclick="CRST_APP.openReleaseNotes()">更新说明</button>
         </div>
       </header>
@@ -408,20 +414,20 @@
     </div>
   </div>
 
-  <!-- v0.4：排除特殊客户 -->
+  <!-- v1.1：特殊客户维护（保留并冻结基期信息） -->
   <div class="modal-mask" id="modalExcludeCustomer">
     <div class="modal modal-lg">
-      <div class="modal-hd">排除特殊客户</div>
+      <div class="modal-hd">维护特殊客户</div>
       <div class="modal-bd">
         <div id="excludeCustomerBody"></div>
         <div class="form-row" style="margin-top:12px">
-          <label>排除说明</label>
-          <textarea class="textarea" id="excludeReason" placeholder="如：监管报送排除已违约客户"></textarea>
+          <label>标记说明</label>
+          <textarea class="textarea" id="excludeReason" placeholder="如：特殊客户，压测期沿用基期分类、PD、LGD及拨备"></textarea>
         </div>
       </div>
       <div class="modal-ft">
         <button class="btn btn-default" onclick="CRST_APP.hideModal()">取消</button>
-        <button class="btn btn-primary" onclick="CRST_APP.confirmExcludeCustomers()">确认排除</button>
+        <button class="btn btn-primary" onclick="CRST_APP.confirmExcludeCustomers()">确认并冻结</button>
       </div>
     </div>
   </div>
@@ -483,7 +489,7 @@
             <label class="radio-card">
               <input type="radio" name="sj_source" value="IMPORT" onchange="CRST_APP.onStressJobSourceChange()" />
               <span class="radio-card-content">
-                <span class="radio-card-label">导入财务数据</span>
+                <span class="radio-card-label">导入数据</span>
               </span>
             </label>
           </div>
@@ -550,8 +556,8 @@
 
   <script src="js/carbon-calculation-logic.js?v=20260726b"></script>
   <script src="js/industry-selector-data.js"></script>
-  <script src="js/release-notes.js?v=20260803a"></script>
+  <script src="js/release-notes.js?v=20260908a"></script>
   <script src="js/store-full.js?v=20260726a"></script>
-  <script src="js/app-full.js?v=20260803b"></script>
+  <script src="js/app-full.js?v=20260908a"></script>
 </body>
 </html>

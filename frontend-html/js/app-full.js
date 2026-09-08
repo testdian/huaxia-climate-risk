@@ -44,12 +44,12 @@
   const stressJobFilters = { name: '', status: '', sourceTaskId: '', periodStart: '', periodEnd: '' };
   /** 压测流水线步骤页（左侧菜单 ②③④） */
   const STRESS_STEP_PAGES = {
-    'scenario-analysis': { pageId: 'scenario-analysis', stepIndex: 1, title: '情景分析', listTitle: '气候风险压测 — 情景分析' },
+    'scenario-analysis': { pageId: 'scenario-analysis', stepIndex: 1, title: '分项计算', listTitle: '气候风险投融资压测 — 分项计算' },
     'stress-fin-trans': { pageId: 'stress-fin-trans', stepIndex: 1, title: '逐户判定', listTitle: '气候风险压测 — 逐户判定' },
     'stress-pd-lgd': { pageId: 'stress-pd-lgd', stepIndex: 2, title: 'PD/LGD计算', listTitle: 'PD/LGD计算' },
     'stress-npl-prov': { pageId: 'stress-npl-prov', stepIndex: 3, title: '不良和拨备计算', listTitle: '不良和拨备计算' },
   };
-  const STRESS_JOB_STEP_LABELS = ['数据处理', '财务传导', 'PD/LGD计算', '不良和拨备计算'];
+  const STRESS_JOB_STEP_LABELS = ['数据处理', '情景与财务传导', 'PD/LGD计算', '不良和拨备计算'];
   const STRESS_SCENARIO_OPTIONS = [
     { code: 'BASELINE', label: '现有政策' },
     { code: 'GREENHOUSE_WORLD', label: '温室世界' },
@@ -70,7 +70,7 @@
 
   const EXPORT_MODULE_OPTIONS = [
     '数据处理',
-    '情景分析',
+    '分项计算',
     '压测结果分析',
     '财务传导',
     '不良和拨备计算',
@@ -87,7 +87,7 @@
     EXCLUDED: '已排除',
     EXCLUDED_NO_REPORT: '已排除逐户判定',
   };
-  const LOAN_REGION_LABELS = { DOMESTIC: '境内', OVERSEAS: '境外' };
+  const LOAN_REGION_LABELS = { DOMESTIC: '境内（含香港）', OVERSEAS: '境外', BOTH: '境内外' };
   const BAD_LOAN_CLASSES = new Set(['SUBSTANDARD', 'DOUBTFUL', 'LOSS']);
   let modalState = null;
   let pendingDataProcessImportTaskId = null;
@@ -529,11 +529,55 @@
     return [dim, '样本数', '平均影响率', '碳费用合计(万)', 'ECL增量合计(万)', '违约数'];
   }
 
+  function crc32(bytes) {
+    let crc = -1;
+    for (const b of bytes) {
+      crc ^= b;
+      for (let i = 0; i < 8; i += 1) crc = (crc >>> 1) ^ (0xEDB88320 & -(crc & 1));
+    }
+    return (crc ^ -1) >>> 0;
+  }
+
+  function zipStore(entries) {
+    const enc = new TextEncoder();
+    const chunks = []; const central = []; let offset = 0;
+    const u16 = (n) => [n & 255, (n >>> 8) & 255];
+    const u32 = (n) => [n & 255, (n >>> 8) & 255, (n >>> 16) & 255, (n >>> 24) & 255];
+    entries.forEach(([name, content]) => {
+      const nb = enc.encode(name); const db = enc.encode(content); const crc = crc32(db);
+      const local = new Uint8Array([80,75,3,4,20,0,0,0,0,0,0,0,0,0,...u32(crc),...u32(db.length),...u32(db.length),...u16(nb.length),0,0,...nb]);
+      chunks.push(local, db);
+      central.push(new Uint8Array([80,75,1,2,20,0,20,0,0,0,0,0,0,0,0,0,...u32(crc),...u32(db.length),...u32(db.length),...u16(nb.length),0,0,0,0,0,0,0,0,0,0,0,0,...u32(offset),...nb]));
+      offset += local.length + db.length;
+    });
+    const centralSize = central.reduce((s, x) => s + x.length, 0);
+    const end = new Uint8Array([80,75,5,6,0,0,0,0,...u16(entries.length),...u16(entries.length),...u32(centralSize),...u32(offset),0,0]);
+    return new Blob([...chunks, ...central, end], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  }
+
+  function buildXlsxBlob(textContent) {
+    const escXml = (v) => String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    const colName = (n) => { let s=''; for(;n;n=Math.floor((n-1)/26)) s=String.fromCharCode(65+(n-1)%26)+s; return s; };
+    const rows = String(textContent || '').replace(/^\uFEFF/, '').split(/\r?\n/).filter((x) => x.length).map((x) => x.split('\t'));
+    const sheetRows = rows.map((r, ri) => `<row r="${ri+1}">${r.map((v, ci) => {
+      const ref = `${colName(ci+1)}${ri+1}`;
+      const num = /^-?\d+(\.\d+)?%?$/.test(String(v).trim());
+      if (num && !String(v).includes('%')) return `<c r="${ref}" t="n"><v>${Number(v)}</v></c>`;
+      return `<c r="${ref}" t="inlineStr"><is><t xml:space="preserve">${escXml(v)}</t></is></c>`;
+    }).join('')}</row>`).join('');
+    const entries = [
+      ['[Content_Types].xml','<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>'],
+      ['_rels/.rels','<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'],
+      ['xl/workbook.xml','<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="导出数据" sheetId="1" r:id="rId1"/></sheets></workbook>'],
+      ['xl/_rels/workbook.xml.rels','<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>'],
+      ['xl/worksheets/sheet1.xml',`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${sheetRows}</sheetData></worksheet>`],
+    ];
+    return zipStore(entries);
+  }
+
   function triggerExportFileDownload(fileName, textContent) {
-    const blob = new Blob(
-      [textContent],
-      { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }
-    );
+    const isXlsx = String(fileName).toLowerCase().endsWith('.xlsx');
+    const blob = isXlsx ? buildXlsxBlob(textContent) : new Blob([textContent], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -1938,7 +1982,7 @@
 
   function hasTaskFinancialDataSynced(t) {
     if (!t) return false;
-    return t.status !== 'DRAFT';
+    return !!t.financialDataSynced || (!('financialDataSynced' in t) && t.status !== 'DRAFT');
   }
 
   function canEnableDataSyncStep(t, step, taskId, syncDisabled) {
@@ -1947,15 +1991,15 @@
       case 1:
         return !t.loanDataSynced;
       case 2:
-        return !!t.loanDataSynced && !t.gelanDataSynced;
+        return !!t.loanDataSynced && !t.internalRatingDataSynced;
       case 3:
-        return !!t.loanDataSynced && !!t.gelanDataSynced && !hasTaskFinancialDataSynced(t);
+        return !!t.internalRatingDataSynced && !hasTaskFinancialDataSynced(t);
       case 4:
-        return !!t.loanDataSynced
-          && !!t.gelanDataSynced
-          && hasTaskFinancialDataSynced(t)
-          && getInternalPdEligibleRecords(taskId, t).length > 0
-          && !t.internalPdDataSynced;
+        return hasTaskFinancialDataSynced(t) && !t.eclDataSynced;
+      case 5:
+        return !!t.eclDataSynced && !t.gelanDataSynced;
+      case 6:
+        return !!t.gelanDataSynced && !t.baseTablesGenerated;
       default:
         return false;
     }
@@ -2078,7 +2122,7 @@
 
   function getTaskDataYears(t) {
     const basicYear = getTaskReportYear(t);
-    return { basicYear, financialYear: basicYear - 1 };
+    return { basicYear, financialYear: basicYear };
   }
 
   const BRANCH_PROVINCE_MAP = {
@@ -4491,12 +4535,12 @@
   function renderTasks() {
     const filtered = filterTaskList();
     const table = renderPagedTable('tasks', filtered,
-      '<tr><th>任务名称</th><th>基准年度</th><th>贷款类型</th><th>贷款地区</th><th>更新人</th><th>更新时间</th><th>操作</th></tr>',
+      '<tr><th>任务名称</th><th>财报年份</th><th>贷款类型</th><th>贷款地区</th><th>更新人</th><th>更新时间</th><th>操作</th></tr>',
       (t) => `<tr>
         <td>${esc(t.taskName)}</td>
         <td>${t.reportYear || '-'}</td>
-        <td>${t.loanType === 'CORPORATE' ? '对公' : t.loanType === 'PERSONAL' ? '个人' : '-'}</td>
-        <td>${t.loanRegion === 'DOMESTIC' ? '境内' : t.loanRegion === 'OVERSEAS' ? '境外' : '-'}</td>
+        <td>${t.loanType === 'CORPORATE' ? '对公（含普惠）' : t.loanType === 'PERSONAL_BUSINESS' ? '个人经营性贷款' : t.loanType === 'PERSONAL' ? '个人贷款' : '-'}</td>
+        <td>${LOAN_REGION_LABELS[t.loanRegion] || '-'}</td>
         <td>${esc(getTaskUpdatedBy(t))}</td>
         <td>${esc(t.updatedAt || t.createdAt || '-')}</td>
         <td><div class="action-group">${taskActions(t)}</div></td>
@@ -4505,13 +4549,15 @@
     const yearFilterOpts = buildTaskReportYearFilterOptions(taskFilters.reportYear);
     const loanTypeFilterOpts = [
       '<option value="">全部</option>',
-      `<option value="CORPORATE" ${taskFilters.loanType === 'CORPORATE' ? 'selected' : ''}>对公</option>`,
-      `<option value="PERSONAL" ${taskFilters.loanType === 'PERSONAL' ? 'selected' : ''}>个人</option>`,
+      `<option value="CORPORATE" ${taskFilters.loanType === 'CORPORATE' ? 'selected' : ''}>对公（含普惠）</option>`,
+      `<option value="PERSONAL_BUSINESS" ${taskFilters.loanType === 'PERSONAL_BUSINESS' ? 'selected' : ''}>个人经营性贷款</option>`,
+      `<option value="PERSONAL" ${taskFilters.loanType === 'PERSONAL' ? 'selected' : ''}>个人贷款</option>`,
     ].join('');
     const loanRegionFilterOpts = [
       '<option value="">全部</option>',
-      `<option value="DOMESTIC" ${taskFilters.loanRegion === 'DOMESTIC' ? 'selected' : ''}>境内</option>`,
+      `<option value="DOMESTIC" ${taskFilters.loanRegion === 'DOMESTIC' ? 'selected' : ''}>境内（含香港）</option>`,
       `<option value="OVERSEAS" ${taskFilters.loanRegion === 'OVERSEAS' ? 'selected' : ''}>境外</option>`,
+      `<option value="BOTH" ${taskFilters.loanRegion === 'BOTH' ? 'selected' : ''}>境内外</option>`,
     ].join('');
 
     return `
@@ -4526,7 +4572,7 @@
             <input class="input" id="tf_name" placeholder="模糊搜索" value="${esc(taskFilters.name)}" onkeydown="if(event.key==='Enter')CRST_APP.searchTasks()" />
           </div>
           <div class="filter-item">
-            <label>基准年度</label>
+            <label>财报年份</label>
             <select class="select" id="tf_report_year">${yearFilterOpts}</select>
           </div>
           <div class="filter-item">
@@ -4563,12 +4609,14 @@
       return `<option value="${y}" ${(Number(t?.reportYear) || 2026) === y ? 'selected' : ''}>${y}</option>`;
     }).join('');
     const loanTypeOpts = [
-      `<option value="CORPORATE" ${(!t?.loanType || t?.loanType === 'CORPORATE') ? 'selected' : ''}>对公</option>`,
-      `<option value="PERSONAL" ${t?.loanType === 'PERSONAL' ? 'selected' : ''}>个人</option>`,
+      `<option value="CORPORATE" ${(!t?.loanType || t?.loanType === 'CORPORATE') ? 'selected' : ''}>对公（含普惠）</option>`,
+      `<option value="PERSONAL_BUSINESS" ${t?.loanType === 'PERSONAL_BUSINESS' ? 'selected' : ''}>个人经营性贷款</option>`,
+      `<option value="PERSONAL" ${t?.loanType === 'PERSONAL' ? 'selected' : ''}>个人贷款</option>`,
     ].join('');
     const loanRegionOpts = [
-      `<option value="DOMESTIC" ${(!t?.loanRegion || t?.loanRegion === 'DOMESTIC') ? 'selected' : ''}>境内</option>`,
+      `<option value="DOMESTIC" ${(!t?.loanRegion || t?.loanRegion === 'DOMESTIC') ? 'selected' : ''}>境内（含香港）</option>`,
       `<option value="OVERSEAS" ${t?.loanRegion === 'OVERSEAS' ? 'selected' : ''}>境外</option>`,
+      `<option value="BOTH" ${t?.loanRegion === 'BOTH' ? 'selected' : ''}>境内外</option>`,
     ].join('');
     const req = displayOnly ? '' : '<span class="req">*</span>';
     const industryBlock = displayOnly
@@ -4591,22 +4639,22 @@
       ? `
       <div class="form-grid-2">
         <div class="form-row">
-          <label>基准年度</label>
+          <label>财报年份</label>
           <input class="input" value="${esc(String(getTaskReportYear(t)))}" disabled />
         </div>
         <div class="form-row">
           <label>贷款类型</label>
-          <input class="input" value="${esc(t?.loanType === 'PERSONAL' ? '个人' : '对公')}" disabled />
+          <input class="input" value="${esc(t?.loanType === 'PERSONAL_BUSINESS' ? '个人经营性贷款' : t?.loanType === 'PERSONAL' ? '个人贷款' : '对公（含普惠）')}" disabled />
         </div>
       </div>
       <div class="form-row">
         <label>贷款地区</label>
-        <input class="input" value="${esc(t?.loanRegion === 'OVERSEAS' ? '境外' : '境内')}" disabled />
+        <input class="input" value="${esc(LOAN_REGION_LABELS[t?.loanRegion] || '境内（含香港）')}" disabled />
       </div>`
       : `
       <div class="form-grid-2">
         <div class="form-row">
-          <label>${req}基准年度</label>
+          <label>${req}财报年份</label>
           <select class="select" id="d_reportYear" ${roOther}>${yearOpts}</select>
         </div>
         <div class="form-row">
@@ -4624,6 +4672,14 @@
         <input class="input" id="d_taskName" placeholder="请输入任务名称" value="${esc(t?.taskName || '')}" ${roName} />
       </div>
       ${basicInfoBlock}
+      <div class="form-row">
+        <label>高碳行业分类</label>
+        <select class="select" id="d_highCarbonFlag" ${roOther}>
+          <option value="AUTO" ${(!t?.highCarbonFlag || t?.highCarbonFlag === 'AUTO') ? 'selected' : ''}>按行业映射自动识别（不作为样本筛选条件）</option>
+          <option value="YES" ${t?.highCarbonFlag === 'YES' ? 'selected' : ''}>高碳行业</option>
+          <option value="NO" ${t?.highCarbonFlag === 'NO' ? 'selected' : ''}>非高碳行业</option>
+        </select>
+      </div>
       ${industryBlock}
       <div class="form-row">
         <label>任务说明</label>
@@ -4753,15 +4809,16 @@
     const f = getTaskSyncFilters(t);
     const ro = readonly ? 'disabled' : '';
     const regionOpts = [
-      { value: 'DOMESTIC', label: '境内' },
+      { value: 'DOMESTIC', label: '境内（含香港）' },
       { value: 'OVERSEAS', label: '境外' },
+      { value: 'BOTH', label: '境内外' },
     ].map((o) => `<option value="${o.value}" ${f.loanRegion === o.value ? 'selected' : ''}>${o.label}</option>`).join('');
     const classChecks = Object.entries(LOAN_CLASSIFICATION_LABELS).map(([code, label]) =>
       `<label class="inline-check"><input type="checkbox" name="sf_class_${t.id}" value="${code}" ${f.loanClasses?.includes(code) ? 'checked' : ''} ${ro} /> ${label}</label>`
     ).join('');
     return `
       <div class="sync-filter-panel">
-        <h4 class="step-subtitle">筛选条件（v0.4）</h4>
+        <h4 class="step-subtitle">同步口径</h4>
         <div class="form-grid-2">
           <div class="form-row">
             <label><span class="req">*</span>贷款地域范围</label>
@@ -4777,8 +4834,8 @@
           <div class="inline-check-group">${classChecks || '<span class="text-secondary">全部</span>'}</div>
         </div>
         ${!readonly ? `<div class="form-row">
-          <label>特殊客户排除</label>
-          <button type="button" class="btn btn-default" onclick="CRST_APP.openExcludeCustomerModal(${t.id})">排除特殊客户</button>
+          <label>特殊客户维护</label>
+          <button type="button" class="btn btn-default" onclick="CRST_APP.openExcludeCustomerModal(${t.id})">维护特殊客户</button>
         </div>
         <div class="sync-filter-footer">
           <button type="button" class="btn btn-default" onclick="CRST_APP.saveSyncFilters(${t.id})">保存筛选条件</button>
@@ -4816,7 +4873,7 @@
           <td>${esc(loanRegionLabel(r.loanRegion))}</td>
         </tr>`).join('')
       }</tbody></table></div>`
-      : '<div class="empty">暂无可排除客户</div>';
+      : '<div class="empty">暂无可维护客户</div>';
     showModal('modalExcludeCustomer');
   }
 
@@ -4827,22 +4884,21 @@
   function confirmExcludeCustomers() {
     const taskId = modalState?.taskId;
     if (!taskId) return;
-    const reason = document.getElementById('excludeReason')?.value?.trim() || '管理员手工排除';
+    const reason = document.getElementById('excludeReason')?.value?.trim() || '管理员标记为特殊客户';
     const recs = recordsByTask[taskId] || [];
     let n = 0;
     document.querySelectorAll('.exclude-row-check:checked').forEach((el) => {
       const rec = recs.find((r) => r.id === parseInt(el.dataset.recId, 10));
-      if (!rec || rec.excluded) return;
-      rec.excluded = true;
-      rec.dataAvailability = 'EXCLUDED';
-      rec.availabilityReason = reason;
-      rec.dataSource = '已排除';
+      if (!rec || rec.specialCustomer) return;
+      rec.specialCustomer = true;
+      rec.baseInfoFrozen = true;
+      rec.specialCustomerReason = reason;
       n++;
     });
     refreshSyncStats(taskId);
-    addLog(taskId, `数据同步与确认：排除 ${n} 条特殊客户（${reason}）`);
+    addLog(taskId, `数据同步与确认：标记并冻结 ${n} 条特殊客户（${reason}）`);
     hideModal();
-    toast(n ? `已排除 ${n} 条客户` : '未选择排除客户');
+    toast(n ? `已标记并冻结 ${n} 条特殊客户` : '未选择特殊客户');
     render();
   }
 
@@ -4920,7 +4976,7 @@
       : defaultCodes;
     const scenarioChecksReadonly = scenarioReadonly;
     const checks = pubScenarios.map((s) =>
-      `<label><input type="checkbox" name="sc_${entityId}" value="${esc(s.scenarioCode)}" ${selectedCodes.includes(s.scenarioCode) ? 'checked' : ''} onchange="CRST_APP.onStressScenarioToggle(${entityId})" ${scenarioChecksReadonly ? 'disabled' : ''} /> ${esc(s.scenarioName)}</label>`
+      `<label class="scenario-combination-item"><span><input type="checkbox" name="sc_${entityId}" value="${esc(s.scenarioCode)}" ${selectedCodes.includes(s.scenarioCode) ? 'checked' : ''} onchange="CRST_APP.onStressScenarioToggle(${entityId})" ${scenarioChecksReadonly ? 'disabled' : ''} /> ${esc(s.scenarioName)}</span><span class="scenario-ccus-modes"><em>使用CCUS</em><em>不使用CCUS</em></span></label>`
     ).join('');
     const commonParamOpts = sectionOpts.markParamsDirty ? { onDirty: true } : {};
     if (sectionOpts.commonParamsLocked) commonParamOpts.locked = true;
@@ -5196,7 +5252,12 @@
       const syncSummaryText = `同步条数：${totalCount}条`;
 
       let stepFooter = '';
-      if (!taskViewMode && t.status === 'COMPLETED' && t.bankBasicInfo) {
+      if (t.baseTablesGenerated) {
+        stepFooter = `
+          <div class="step-footer step-footer-hint">
+            <span class="step-footer-msg">五张基础表已生成，数据版本已锁定，可进入分项计算。</span>
+          </div>`;
+      } else if (!taskViewMode && t.status === 'COMPLETED' && t.bankBasicInfo) {
         stepFooter = `
           <div class="step-footer step-footer-hint">
             <span class="step-footer-msg">数据处理已完成，已生成客户基础信息与参试银行基础信息表。可在压测方法模块引用本任务数据。</span>
@@ -5210,19 +5271,14 @@
             <span class="sync-action-index" aria-hidden="true">1</span>
             <button type="button" class="btn btn-primary" ${canEnableDataSyncStep(t, 1, t.id, syncDisabled) ? '' : 'disabled'} onclick="CRST_APP.syncLoanData(${t.id})">同步贷款数据</button>
           </div>
-          <div class="sync-action-item">
-            <span class="sync-action-index" aria-hidden="true">2</span>
-            <button type="button" class="btn btn-primary" ${canEnableDataSyncStep(t, 2, t.id, syncDisabled) ? '' : 'disabled'} onclick="CRST_APP.syncGelanData(${t.id})">同步格澜数据</button>
-          </div>
-          <div class="sync-action-item">
-            <span class="sync-action-index" aria-hidden="true">3</span>
-            <button type="button" class="btn btn-primary" ${canEnableDataSyncStep(t, 3, t.id, syncDisabled) ? '' : 'disabled'} onclick="CRST_APP.syncFinancial(${t.id})">同步财务数据</button>
-          </div>
-          <div class="sync-action-item">
-            <span class="sync-action-index" aria-hidden="true">4</span>
-            <button type="button" class="btn btn-primary" ${canEnableDataSyncStep(t, 4, t.id, syncDisabled) ? '' : 'disabled'} onclick="CRST_APP.syncInternalPdData(${t.id})">同步内部PD数据</button>
-          </div>
+          <div class="sync-action-item"><span class="sync-action-index" aria-hidden="true">2</span><button type="button" class="btn btn-primary" ${canEnableDataSyncStep(t, 2, t.id, syncDisabled) ? '' : 'disabled'} onclick="CRST_APP.syncInternalRatingData(${t.id})">同步内部评级</button></div>
+          <div class="sync-action-item"><span class="sync-action-index" aria-hidden="true">3</span><button type="button" class="btn btn-primary" ${canEnableDataSyncStep(t, 3, t.id, syncDisabled) ? '' : 'disabled'} onclick="CRST_APP.syncFinancial(${t.id})">同步财务数据</button></div>
+          <div class="sync-action-item"><span class="sync-action-index" aria-hidden="true">4</span><button type="button" class="btn btn-primary" ${canEnableDataSyncStep(t, 4, t.id, syncDisabled) ? '' : 'disabled'} onclick="CRST_APP.syncEclData(${t.id})">同步预期信用损失</button></div>
+          <div class="sync-action-item"><span class="sync-action-index" aria-hidden="true">5</span><button type="button" class="btn btn-primary" ${canEnableDataSyncStep(t, 5, t.id, syncDisabled) ? '' : 'disabled'} onclick="CRST_APP.syncGelanData(${t.id})">同步格澜数据</button></div>
+          <div class="sync-action-item"><span class="sync-action-index" aria-hidden="true">6</span><button type="button" class="btn btn-default" ${canEnableDataSyncStep(t, 6, t.id, syncDisabled) ? '' : 'disabled'} onclick="CRST_APP.generateBaseTables(${t.id})">生成五张基础表</button></div>
         </div>
+        <div class="v11-rule-note">顺序控制：贷款数据 → 内部评级 → 财务数据 → 预期信用损失 → 格澜数据 → 生成参试客户基础信息、参试客户基期财务、参试银行基础信息、高碳客户基础信息、分行业贷款基础信息五张表。外部接口状态：待联调。</div>
+        ${renderSyncFilterPanel(t, viewOnly || !!t.baseTablesGenerated)}
         <div class="sync-list-filter">
           <label class="sync-list-filter-label" for="sync_status_${t.id}">状态</label>
           <select class="select sync-status-select" id="sync_status_${t.id}" ${viewOnly ? 'disabled' : ''} onchange="CRST_APP.setSyncStatusFilter(${t.id}, this.value)">${statusFilterOpts}</select>
@@ -6704,7 +6760,8 @@
 
     return `
       <div class="card">
-        <div class="toolbar"><h2 class="page-title">压测结果分析</h2></div>
+        <div class="toolbar"><h2 class="page-title">压测结果分析</h2><span class="tag tag-info">客户/行业 × CCUS 四类结果</span></div>
+        <div class="v11-rule-note">结果按客户明细、行业汇总分别提供“使用CCUS”和“不使用CCUS”视图，并生成中国人民银行口径汇总表；所有下载均生成真实 Excel/PNG 文件。</div>
         ${renderStressResultJobFilterBar({
           sources,
           srcKey,
@@ -6930,7 +6987,8 @@
       }, 5, 'table-exports-wrap');
     return `
       <div class="card">
-        <div class="toolbar"><h2 class="page-title">导出记录</h2></div>
+        <div class="toolbar"><h2 class="page-title">数据导出</h2></div>
+        <div class="v11-rule-note">支持导出客户/行业四类压测结果、中国人民银行汇总表、违约调整表及风险预警清单。文件生成、校验和下载状态全程留痕。</div>
         <div class="filter-bar export-filter-bar">
           <select class="select" id="ef_module">
             <option value="">全部模块</option>
@@ -9247,6 +9305,7 @@
       reportYear: document.getElementById('d_reportYear')?.value || '2026',
       loanType: document.getElementById('d_loanType')?.value || 'CORPORATE',
       loanRegion: document.getElementById('d_loanRegion')?.value || 'DOMESTIC',
+      highCarbonFlag: document.getElementById('d_highCarbonFlag')?.value || 'AUTO',
       stressPurpose: document.getElementById('d_stressPurpose')?.value || industryPickerState?.purpose || 'PBOC',
       selectedIndustryCodes: readSelectedIndustryCodes(),
       desc: document.getElementById('d_desc')?.value || '',
@@ -9254,11 +9313,10 @@
   }
 
   function saveTask() {
-    const { name, reportYear, loanType, loanRegion, stressPurpose, selectedIndustryCodes, desc } = readTaskFormFields();
+    const { name, reportYear, loanType, loanRegion, highCarbonFlag, stressPurpose, selectedIndustryCodes, desc } = readTaskFormFields();
 
     if (taskDraftMode) {
       if (!name || !reportYear || !loanType || !loanRegion) { toast('请填写必填项', 'error'); return; }
-      if (!selectedIndustryCodes.length) { toast('请至少选择一个涉及行业', 'error'); return; }
       const createdId = ++nextId.task;
       tasks.unshift({
         id: createdId,
@@ -9267,6 +9325,7 @@
         reportYear: Number(reportYear),
         loanType,
         loanRegion,
+        highCarbonFlag,
         stressPurpose,
         selectedIndustryCodes,
         description: desc,
@@ -9293,10 +9352,10 @@
       t.taskName = name;
       if (!hasTaskFinancialDataSynced(t)) {
         if (!reportYear || !loanType || !loanRegion) { toast('请填写必填项', 'error'); return; }
-        if (!selectedIndustryCodes.length) { toast('请至少选择一个涉及行业', 'error'); return; }
         t.reportYear = Number(reportYear);
         t.loanType = loanType;
         t.loanRegion = loanRegion;
+        t.highCarbonFlag = document.getElementById('d_highCarbonFlag')?.value || 'AUTO';
         t.stressPurpose = stressPurpose;
         t.selectedIndustryCodes = selectedIndustryCodes;
         t.description = desc;
@@ -9395,9 +9454,8 @@
 
   function filterSyncRecordsByTaskOverview(rows, t) {
     let filtered = rows.slice();
-    if (t?.loanRegion) filtered = filtered.filter((r) => r.loanRegion === t.loanRegion);
-    if (t?.loanType === 'PERSONAL') filtered = filtered.filter(() => false);
-    filtered = filtered.filter((r) => recordMatchesTaskIndustries(r, t));
+    if (t?.loanRegion && t.loanRegion !== 'BOTH') filtered = filtered.filter((r) => r.loanRegion === t.loanRegion);
+    // V1.1：投融资压测覆盖全部行业，高碳行业只作为结果分类，不再作为同步样本筛选条件。
     return filtered;
   }
 
@@ -9454,18 +9512,12 @@
   function startSyncLoan(id) {
     const t = getTask(id);
     if (!t || t.status !== 'DRAFT' || t.loanDataSynced) return;
-    const loanTypeLabel = t.loanType === 'PERSONAL' ? '个人' : '对公';
-    const regionLabel = t.loanRegion === 'OVERSEAS' ? '境外' : '境内';
+    const loanTypeLabel = t.loanType === 'PERSONAL_BUSINESS' ? '个人经营性贷款' : t.loanType === 'PERSONAL' ? '个人贷款' : '对公（含普惠）';
+    const regionLabel = LOAN_REGION_LABELS[t.loanRegion] || '境内（含香港）';
     t.updatedAt = nowStr();
     addLog(id, `数据同步与确认：开始同步贷款数据（${regionLabel}，${t.reportYear || '-'}年，${loanTypeLabel}，${getTaskIndustrySummary(t)}）`);
     render();
     setTimeout(() => {
-      if (t.loanType === 'PERSONAL') {
-        toast('当前任务为个人贷款类型，暂无可同步的对公样本', 'error');
-        addLog(id, '数据同步与确认：个人贷款类型暂无可同步样本');
-        render();
-        return;
-      }
       recordsByTask[id] = mockLoanSyncRecords(id, t);
       const recs = recordsByTask[id];
       if (!recs.length) {
@@ -9476,7 +9528,7 @@
       }
       t.loanDataSynced = true;
       t.basicInfoYear = getTaskReportYear(t);
-      t.financialDataYear = t.basicInfoYear - 1;
+      t.financialDataYear = t.basicInfoYear;
       ensureBankCapitalMetricsFromLoanSync(t);
       refreshSyncStats(id);
       t.updatedAt = nowStr();
@@ -9487,11 +9539,70 @@
     }, 800);
   }
 
+  function startSyncInternalRating(id) {
+    const t = getTask(id);
+    if (!t || t.status !== 'DRAFT' || t.internalRatingDataSynced) return;
+    if (!t.loanDataSynced) { toast('请先同步贷款数据', 'error'); return; }
+    t.syncingStep = 'INTERNAL_RATING';
+    addLog(id, '数据同步与确认：开始同步内部评级');
+    render();
+    setTimeout(() => {
+      (recordsByTask[id] || []).forEach((r) => {
+        if (r.pdValue == null) r.pdValue = 0.02;
+        r.internalRating = r.internalRating || (r.pdValue >= 0.08 ? 'BBB-' : r.pdValue >= 0.03 ? 'BBB+' : 'A');
+        r.pdInternalT0 = r.pdValue;
+      });
+      t.internalRatingDataSynced = true;
+      t.syncingStep = '';
+      t.updatedAt = nowStr();
+      addLog(id, '数据同步与确认：内部评级同步完成');
+      toast('内部评级同步完成');
+      render();
+    }, 600);
+  }
+
+  function startSyncEcl(id) {
+    const t = getTask(id);
+    if (!t || t.status !== 'DRAFT' || t.eclDataSynced) return;
+    if (!hasTaskFinancialDataSynced(t)) { toast('请先同步财务数据', 'error'); return; }
+    t.syncingStep = 'ECL';
+    addLog(id, '数据同步与确认：开始同步预期信用损失');
+    render();
+    setTimeout(() => {
+      (recordsByTask[id] || []).forEach((r) => {
+        r.pdEclT0 = r.pd0 ?? r.pdValue ?? 0.02;
+        r.lgdT0 = r.lgd0 ?? 0.45;
+        r.eclMatched = true;
+      });
+      t.eclDataSynced = true;
+      t.syncingStep = '';
+      t.updatedAt = nowStr();
+      addLog(id, '数据同步与确认：预期信用损失同步完成');
+      toast('预期信用损失同步完成');
+      render();
+    }, 600);
+  }
+
+  function generateBaseTables(id) {
+    const t = getTask(id);
+    if (!t || t.baseTablesGenerated) return;
+    if (!t.loanDataSynced || !t.internalRatingDataSynced || !hasTaskFinancialDataSynced(t) || !t.eclDataSynced || !t.gelanDataSynced) {
+      toast('请按顺序完成全部数据同步', 'error'); return;
+    }
+    t.baseTablesGenerated = true;
+    t.status = 'READY_STRESS';
+    t.updatedAt = nowStr();
+    syncBankBasicInfoFromRecords(id);
+    addLog(id, '数据同步与确认：已生成五张基础表');
+    toast('五张基础表生成完成，可进入分项计算');
+    render();
+  }
+
   function startSyncGelan(id) {
     const t = getTask(id);
     if (!t || t.status !== 'DRAFT' || t.gelanDataSynced) return;
-    if (!t.loanDataSynced || !(recordsByTask[id] || []).length) {
-      toast('请先同步贷款数据', 'error');
+    if (!t.eclDataSynced) {
+      toast('请先同步预期信用损失', 'error');
       return;
     }
     t.updatedAt = nowStr();
@@ -9517,15 +9628,11 @@
   function startSync(id) {
     const t = getTask(id);
     if (t.status !== 'DRAFT') return;
-    if (!t.loanDataSynced || !(recordsByTask[id] || []).length) {
-      toast('请先同步贷款数据', 'error');
+    if (!t.internalRatingDataSynced) {
+      toast('请先同步内部评级', 'error');
       return;
     }
-    if (!t.gelanDataSynced) {
-      toast('请先同步格澜数据', 'error');
-      return;
-    }
-    t.status = 'SYNCING';
+    t.syncingStep = 'FINANCIAL';
     t.updatedAt = nowStr();
     addLog(id, '数据同步与确认：开始同步财务数据');
     render();
@@ -9535,16 +9642,17 @@
         t.factorVersion = suggestFactorVersionByReportEnd(period.end);
       }
       t.basicInfoYear = getTaskReportYear(t);
-      t.financialDataYear = t.basicInfoYear - 1;
+      t.financialDataYear = t.basicInfoYear;
       t.mappingVersion = 'M-' + getActiveMappingVersion();
       t.scenarioVersion = 'S-' + getPublishedScenarioVersion();
       const recs = recordsByTask[id] || [];
       recs.forEach((r) => enrichFinancialSyncRecordFields(r));
+      t.financialDataSynced = true;
+      t.syncingStep = '';
       applyReportMissingRules(t, recs);
       const airportStats = fetchAirportThroughputForTask(id);
       refreshSyncStats(id);
       const pendingDisambig = getPendingDisambigRecords(recs);
-      t.status = pendingDisambig.length ? 'PENDING_DISAMBIG' : 'PROCESSING';
       t.updatedAt = nowStr();
       addLog(id, pendingDisambig.length
         ? `数据同步与确认：财务数据同步完成，识别 ${pendingDisambig.length} 条行业歧义客户，待甄别确认`
@@ -9558,7 +9666,6 @@
           ? `财务数据同步完成；${airportStats.fail} 条机场企业旅客吞吐量待维护`
           : '财务数据同步完成');
       syncBankBasicInfoFromRecords(id);
-      if (!pendingDisambig.length) tryFinalizeDataProcess(id, { showModal: true });
       if (currentPage === 'data-process' && currentTaskId === id) detailStep = 1;
       render();
     }, 800);
@@ -10881,7 +10988,7 @@
     issueRiskWarnings, openRiskPushModal, oneClickIssueResultRiskWarnings, confirmIssueRiskWarnings, openDefaultDrill,
     applyResultDefaultCriteria,
     generateRegulatoryReport, openExportSource,
-    downloadExport, syncLoanData: startSyncLoan, syncGelanData: startSyncGelan, syncFinancial: startSync, syncInternalPdData: startSyncInternalPd, hideModal,
+    downloadExport, syncLoanData: startSyncLoan, syncInternalRatingData: startSyncInternalRating, syncFinancial: startSync, syncEclData: startSyncEcl, syncGelanData: startSyncGelan, generateBaseTables, syncInternalPdData: startSyncInternalPd, hideModal,
     openTaskLogDrawer, closeTaskLogDrawer,
     toggleSider, setSiderCollapsed,
   };
