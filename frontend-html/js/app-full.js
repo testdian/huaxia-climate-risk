@@ -34,9 +34,10 @@
   let createStressJobFromPage = 'scenario-analysis';
   const STRESS_IMPORT_FILE_SPECS = [
     { key: 'customerBasic', label: '高碳行业客户基础信息表', fileName: '高碳行业客户基础信息表.xlsx' },
-    { key: 'internalPd', label: '无财务数据客户内部 PD/LGD', fileName: '无财务数据客户内部PD_LGD.xlsx' },
+    { key: 'industryLoan', label: '分行业贷款信息表', fileName: '分行业贷款信息表.xlsx' },
+    { key: 'internalPd', label: '无财务数据客户内部PD和LGD表', fileName: '无财务数据客户内部PD和LGD表.xlsx' },
     { key: 'bankBasic', label: '参试银行基础信息表', fileName: '参试银行基础信息表.xlsx' },
-    { key: 'bankCapital', label: '参试银行资本与拨备监管指标', fileName: '参试银行资本与拨备监管指标.xlsx' },
+    { key: 'bankCapital', label: '参试银行资本与拨备监管指标表', fileName: '参试银行资本与拨备监管指标表.xlsx' },
   ];
   let stressImportFiles = {};
   /** 财务传导结果：jobId -> { scenarioCode, years, rows } */
@@ -45,11 +46,11 @@
   /** 压测流水线步骤页（左侧菜单 ②③④） */
   const STRESS_STEP_PAGES = {
     'scenario-analysis': { pageId: 'scenario-analysis', stepIndex: 1, title: '分项计算', listTitle: '气候风险投融资压测 — 分项计算' },
-    'stress-fin-trans': { pageId: 'stress-fin-trans', stepIndex: 1, title: '逐户判定', listTitle: '气候风险压测 — 逐户判定' },
+    'stress-fin-trans': { pageId: 'stress-fin-trans', stepIndex: 1, title: '财务传导及逐户判定', listTitle: '财务传导及逐户判定' },
     'stress-pd-lgd': { pageId: 'stress-pd-lgd', stepIndex: 2, title: 'PD/LGD计算', listTitle: 'PD/LGD计算' },
     'stress-npl-prov': { pageId: 'stress-npl-prov', stepIndex: 3, title: '不良和拨备计算', listTitle: '不良和拨备计算' },
   };
-  const STRESS_JOB_STEP_LABELS = ['数据处理', '情景与财务传导', 'PD/LGD计算', '不良和拨备计算'];
+  const STRESS_JOB_STEP_LABELS = ['基础数据', '情景导入 特殊客户导入 财务传导', 'PD/LGD计算', '不良和拨备计算'];
   const STRESS_SCENARIO_OPTIONS = [
     { code: 'BASELINE', label: '现有政策' },
     { code: 'GREENHOUSE_WORLD', label: '温室世界' },
@@ -57,13 +58,15 @@
   ];
   /** 当前模块上下文（流程拆分到各一级菜单） */
   let moduleContext = null;
-  const MODULE_FLOW_PAGES = new Set(['data-process', 'scenario-analysis', 'stress-fin-trans', 'stress-pd-lgd', 'stress-npl-prov']);
+  const MODULE_FLOW_PAGES = new Set(['data-process', 'scenario-analysis', 'stress-fin-trans', 'stress-pd-lgd', 'stress-npl-prov', 'stress-item-results', 'stress-summary']);
   const TAB_TO_STEP = { overview: 0, sync: 1, process: 2, external: 3, stress: 3, result: 4, log: 5 };
-  let taskFilters = { name: '', reportYear: '', loanType: '', loanRegion: '' };
+  let taskFilters = { name: '', reportYear: '', baselineYear: '', loanType: '', loanRegion: '' };
   const LIST_PAGE_SIZES = [10, 20, 50, 100];
   const listPagers = {};
   /** 任务详情同步清单状态筛选：taskId -> '' | USABLE | NEED_AVG | ABNORMAL */
   const syncListFilters = {};
+  /** 财务数据版本筛选：taskId -> version key */
+  const financialVersionFilters = {};
   /** 任务详情压测结果筛选：taskId -> filters */
   const taskResultFilters = {};
   let exportFilters = { fileName: '', moduleName: '' };
@@ -99,6 +102,8 @@
   let internalPdImportFilePicked = false;
   let pendingScenarioParamsImportJobId = null;
   let scenarioParamsImportFilePicked = false;
+  let pendingSpecialCustomerImportJobId = null;
+  let specialCustomerImportFilePicked = false;
   let bankBasicImportFilePicked = false;
   let pendingConfirmDeleteFn = null;
   let toastTimer = null;
@@ -118,8 +123,8 @@
   const STEP_LABELS = ['创建任务', '数据同步与确认', '数据处理', '场景压测', '压测结果', '应用报送'];
 
   const REGULATORY_REPORT_FILES = [
-    { name: '压力测试结果汇总表.xlsx', desc: '按人民银行模板汇总的压测结果指标' },
-    { name: '违约调整明细表.xlsx', desc: '高碳行业客户违约调整明细（现有政策/温室世界/有序转型）' },
+    { name: '华夏银行压力测试结果汇总表（外报）.xls', desc: '按人民银行模板汇总的压测结果指标' },
+    { name: '华夏银行违约调整明细表（外报）.xls', desc: '高碳行业客户违约调整明细（现有政策/温室世界/有序转型）' },
   ];
 
   const REGULATORY_SCENARIO_COLS = [
@@ -134,6 +139,11 @@
     '当企业资产总计等于0时，判定违约，对应贷款计入不良贷款。',
   ];
 
+  function isDefaultJudgmentEligible(rec) {
+    if (!rec || rec.specialCustomer || rec.excluded || rec.dataAvailability === 'EXCLUDED' || rec.dataAvailability === 'EXCLUDED_NO_REPORT') return false;
+    return !!window.CRST_CARBON?.isHighCarbonIndustry?.(rec.standardIndustry, rec.gbIndustryCode);
+  }
+
   function getResultDefaultCriteria(t) {
     const c = t?.resultDefaultCriteria || {};
     return {
@@ -143,6 +153,16 @@
   }
 
   function evalDefaultFromRules(r, rec, criteria) {
+    if (!isDefaultJudgmentEligible(rec)) {
+      return {
+        defaultFlag: false,
+        defaultReason: '',
+        assetLiabilityRatioBefore: r.assetLiabilityRatioBefore ?? rec?.assetLiabilityRatio ?? criteria.assetLiabilityRatio,
+        assetLiabilityRatioAfter: r.assetLiabilityRatioAfter ?? rec?.assetLiabilityRatio ?? criteria.assetLiabilityRatio,
+        alrIncreasePct: 0,
+        postStatus: r.prevStatus || 'NORMAL',
+      };
+    }
     const totalAssets = rec?.totalAssets ?? r.totalAssets;
     if (totalAssets === 0) {
       return {
@@ -160,10 +180,10 @@
     const alrIncreasePct = alr0 >= 1 ? (alr1 - alr0) / alr0 : 0;
     let defaultFlag = false;
     let defaultReason = '';
-    if (alr0 < 1 && alr1 >= 1) {
+    if (alr0 < 1 && alr1 > 1) {
       defaultFlag = true;
       defaultReason = '压测后资产负债率>100%（基期<100%）';
-    } else if (alr0 >= 1 && alr1 >= alr0 * 1.2) {
+    } else if (alr0 >= 1 && alr1 > alr0 * 1.2) {
       defaultFlag = true;
       defaultReason = '压测后资产负债率增幅>20%（基期≥100%）';
     }
@@ -235,9 +255,9 @@
 
   /** 压测结果分析 / 不良和拨备计算 — 人民银行压力测试结果汇总表模板 */
   const PBOC_SUMMARY_TITLE_BY_SCENARIO = {
-    BASELINE: '压力测试结果汇总表（现有政策）',
-    GREENHOUSE_WORLD: '压力测试结果汇总表（温室世界）',
-    ORDERLY_TRANSITION: '压力测试结果汇总表（有序转型）',
+    BASELINE: '华夏银行压力测试结果汇总表（外报）',
+    GREENHOUSE_WORLD: '华夏银行压力测试结果汇总表（外报）',
+    ORDERLY_TRANSITION: '华夏银行压力测试结果汇总表（外报）',
   };
   const PBOC_CCUS_TRIO = ['npl_no_ccus', 'npl_ccus', 'provision_ccus'];
   const PBOC_BASIC_PAIR = ['npl', 'provision'];
@@ -414,9 +434,6 @@
     { key: 'revenueGrowth', label: '收入增长率' },
     { key: 'costIncomeRatio', label: '成本收入比' },
     { key: 'assetLiabilityRatio', label: '资产负债率' },
-    { key: 'policyIntensity', label: '政策强度' },
-    { key: 'physicalLossRatio', label: '物理损失率' },
-    { key: 'greenInvestmentRatio', label: '绿色投资占比' },
     { key: 'freeQuotaRatio', label: '免费配额比例' },
     { key: 'carbonPrice', label: '碳价(元/吨)' },
     { key: 'carbonEmission', label: '碳排放量(吨)' },
@@ -823,7 +840,7 @@
       sourceType: getExportMeta(sourceKey)?.sourceType || 'RESULTS',
       exportKind: 'STRESS_SUMMARY',
       filterSnapshot,
-      downloadFileName: buildExportTitleFileName(tpl.title),
+      downloadFileName: buildExportTitleFileName('华夏银行压力测试结果汇总表（外报）', 'xls'),
     });
     if (taskId) addLog(taskId, `压测结果：导出${tpl.title}`);
     triggerExportFileDownload(downloadFileName, buildStressSummaryExportText(activeScenarioCode, exportResults, getExportMeta(sourceKey)?.taskName, job));
@@ -840,7 +857,7 @@
     const exportResults = scenarioRes.length ? scenarioRes : buildNplProvResultsFromPreview(job, getNplProvPreviewRows(job));
     if (!exportResults.length) { toast('暂无不良和拨备汇总数据', 'error'); return; }
     const tpl = getStressSummaryTemplate(code, job);
-    triggerExportFileDownload(buildExportTitleFileName(tpl.title), buildStressSummaryExportText(code, exportResults, job.jobName, job));
+    triggerExportFileDownload(buildExportTitleFileName('华夏银行压力测试结果汇总表（外报）', 'xls'), buildStressSummaryExportText(code, exportResults, job.jobName, job));
     addStressJobLog(job.id, `不良和拨备计算：导出${tpl.title}`);
     toast(`已导出${tpl.title}`);
   }
@@ -859,7 +876,7 @@
       row.orderly,
     ].join('\t'));
     return [
-      '违约调整明细表',
+      '华夏银行违约调整明细表（外报）',
       '填报说明：本表仅填写高碳行业违约调整明细；高碳行业分类与《国民经济行业分类》(GB/T 4754-2017) 对应关系参见《高碳行业对照表》。',
       '',
       header,
@@ -877,13 +894,13 @@
     const filterSnapshot = buildAnalysisExportSnapshot({ context: 'defaultAdjustment' });
     const { downloadFileName } = appendExportLog({
       sourceKey,
-      scope: '违约调整明细表',
+      scope: '华夏银行违约调整明细表（外报）',
       fields: '序号, 客户名称, 统一社会信用代码, 所属行业, 贷款余额, 现有政策, 温室世界, 有序转型',
       filterDesc,
       sourceType: getExportMeta(sourceKey)?.sourceType || 'RESULTS',
       exportKind: 'DEFAULT_ADJUSTMENT',
       filterSnapshot,
-      downloadFileName: buildExportTitleFileName('违约调整明细表'),
+      downloadFileName: buildExportTitleFileName('华夏银行违约调整明细表（外报）', 'xls'),
     });
     if (taskId) addLog(taskId, '压测结果：导出违约调整明细表');
     triggerExportFileDownload(downloadFileName, buildDefaultAdjustmentExportText(taskId, res, jobId));
@@ -942,10 +959,8 @@
         .sort((a, b) => (a.testYear || 0) - (b.testYear || 0))[0];
       return hit?.testYear ?? '否';
     };
-    const companies = [...new Set(results.map((r) => r.companyName))].filter((name) => {
-      const ind = results.find((r) => r.companyName === name)?.standardIndustry;
-      return !isHighCarbon || isHighCarbon(ind);
-    });
+    const companies = [...new Set(results.map((r) => r.companyName))].filter((name) =>
+      isDefaultJudgmentEligible(recMap[name] || results.find((r) => r.companyName === name)));
     return companies.map((name, i) => {
       const rec = recMap[name] || {};
       const credit = creditMap[name] || {};
@@ -968,7 +983,7 @@
     if (!job) return [];
     const isHighCarbon = window.CRST_CARBON?.isHighCarbonIndustry?.bind(window.CRST_CARBON);
     const recs = (stressRecordsByJob[job.id] || entityRecords(job.id, job))
-      .filter((r) => !r.excluded && r.standardIndustry);
+      .filter((r) => isDefaultJudgmentEligible(r));
     const recMap = Object.fromEntries(recs.map((r) => [r.companyName, r]));
     const credits = stressCreditByJob[job.id] || entityCredits(job.id, job);
     const creditMap = Object.fromEntries(credits.map((c) => [c.companyName, c]));
@@ -1025,7 +1040,7 @@
     const filterDesc = buildAnalysisFilterDesc();
     const filterSnapshot = buildAnalysisExportSnapshot({ context: 'finTransDefaultAdjustment', jobId: job.id });
     const text = [
-      '违约调整明细表',
+      '华夏银行违约调整明细表（外报）',
       '填报说明：本表仅填写高碳行业违约调整明细；高碳行业分类与《国民经济行业分类》(GB/T 4754-2017) 对应关系参见《高碳行业对照表》。',
       '',
       '序号\t客户名称\t统一社会信用代码\t所属行业\t贷款余额(万元)\t现有政策(违约年份/否)\t温室世界(违约年份/否)\t有序转型(违约年份/否)',
@@ -1033,14 +1048,14 @@
     ].join('\n');
     const { downloadFileName } = appendExportLog({
       sourceKey,
-      scope: '违约调整明细表（财务传导）',
+      scope: '华夏银行违约调整明细表（外报）',
       fields: '序号, 客户名称, 统一社会信用代码, 所属行业, 贷款余额, 现有政策, 温室世界, 有序转型',
       filterDesc,
       sourceType: 'RESULTS',
       exportKind: 'DEFAULT_ADJUSTMENT',
       filterSnapshot,
       moduleName: '财务传导',
-      downloadFileName: buildExportTitleFileName('违约调整明细表'),
+      downloadFileName: buildExportTitleFileName('华夏银行违约调整明细表（外报）', 'xls'),
     });
     addStressJobLog(job.id, '财务传导：导出违约调整明细表');
     triggerExportFileDownload(downloadFileName, text);
@@ -1226,10 +1241,10 @@
   }
 
   const STRESS_PIPELINE_STEPS = [
-    { key: 'finTrans', label: '执行逐户判定' },
-    { key: 'nplProv', label: '执行不良和拨备计算' },
-    { key: 'pdLgd', label: '执行PD/LGD计算' },
-    { key: 'results', label: '执行压测结果分析' },
+    { key: 'finTrans', label: '财务传导（含逐户违约判定）' },
+    { key: 'pdLgd', label: 'PD/LGD计算' },
+    { key: 'nplProv', label: '不良和拨备计算' },
+    { key: 'results', label: '生成客户及行业分项结果与汇总表' },
   ];
 
   function isStressPipelineNplProvDone(t) {
@@ -1270,7 +1285,12 @@
   function canRunStressPipelineStep(t, id, stepKey, editable) {
     if (!editable || !t || t.status === 'STRESSING') return false;
     if (!isStressScenarioParamsSaved(t)) return false;
-    return canEditScenarioAnalysisConfig(t);
+    if (!canEditScenarioAnalysisConfig(t)) return false;
+    if (stepKey === 'finTrans') return !!(t.specialCustomerImportConfirmed || t.status === 'COMPLETED');
+    if (stepKey === 'pdLgd') return isFinTransDone(t);
+    if (stepKey === 'nplProv') return !!(t.creditFetched && t.eclFetched);
+    if (stepKey === 'results') return isStressPipelineNplProvDone(t);
+    return false;
   }
 
   function renderStressPipelinePanel(entityId, t, editable) {
@@ -1294,9 +1314,11 @@
         </div>
         ${i < STRESS_PIPELINE_STEPS.length - 1 ? '<div class="stress-pipeline-line" aria-hidden="true"></div>' : ''}`;
     }).join('');
-    const pipelineHint = paramsSaved
-      ? '各步骤可单独执行；完成某一步后，对应「财务传导」菜单模块才会生成数据。'
-      : '请先保存上方「压测情景」与「公共参数」，再执行下方计算步骤。';
+    const pipelineHint = !paramsSaved
+      ? '请先导入并保存情景参数，再导入特殊客户清单。'
+      : (!t.specialCustomerImportConfirmed && t.status !== 'COMPLETED')
+        ? '请先完成特殊客户清单导入或确认无特殊客户，再按顺序执行计算。'
+        : '必须按顺序执行：财务传导 → PD/LGD → 不良和拨备 → 分项结果及汇总表。';
     return `
       <section class="stress-pipeline-panel stress-pipeline-panel--below-params" aria-label="压测执行进度">
         <div class="stress-pipeline-head">
@@ -1639,7 +1661,7 @@
     if (ctx === 'finTransDefaultAdjustment' || scope.includes('财务传导')) return '财务传导';
     if (ctx === 'pdLgd' || scope.includes('PD/LGD')) return 'PD/LGD计算';
     if (ctx === 'nplProv' || scope.includes('不良') || scope.includes('拨备')) return '不良和拨备计算';
-    if (['STRESS_TRANS', 'STRESS_PHYS', 'STRESS_COMP'].includes(opts?.sourceType)) return '情景分析';
+    if (['STRESS_TRANS', 'STRESS_PHYS', 'STRESS_COMP'].includes(opts?.sourceType)) return '分项计算';
     if (opts?.sourceType === 'RESULTS' || opts?.sourceType === 'REPORT') return '压测结果分析';
     if (['stressSummary', 'defaultMonitor', 'defaultAdjustment', 'analysisTable', 'analysisChart', 'taskDetail', 'analysis'].includes(ctx)) {
       return '压测结果分析';
@@ -1654,7 +1676,7 @@
   function defaultReasonText(r) {
     if (!r?.defaultFlag) return '';
     if (r.defaultReason) return r.defaultReason;
-    if ((r.totalAssets || 0) <= 0) return '资产总计≤0';
+    if (r.totalAssets === 0) return '资产总计=0';
     const alr0 = r.assetLiabilityRatioBefore ?? r.assetLiabilityRatio ?? 0.65;
     if (alr0 < 1 && (r.assetLiabilityRatioAfter ?? 1) > 1) return '压测后资产负债率>100%（基期<100%）';
     if (alr0 >= 1 && (r.alrIncreasePct || 0) > 0.2) return '压测后资产负债率增幅>20%（基期≥100%）';
@@ -1671,13 +1693,11 @@
     const alr0 = record.assetLiabilityRatio ?? params.assetLiabilityRatio ?? 0.65;
     const alrAfter = alr0 + (out.netProfitAfter < 0 ? 0.15 : -0.02);
     const alrIncreasePct = alr0 >= 1 ? (alrAfter - alr0) / alr0 : 0;
-    let defaultReason = '';
-    if (out.defaultFlag) {
-      if ((record.totalAssets || 0) <= 0) defaultReason = '资产总计≤0';
-      else if (alr0 < 1 && alrAfter >= 1) defaultReason = '压测后资产负债率>100%（基期<100%）';
-      else if (alr0 >= 1 && alrAfter >= alr0 * 1.2) defaultReason = '压测后资产负债率增幅>20%（基期≥100%）';
-      else defaultReason = '触发违约判定规则';
-    }
+    const defaultEval = evalDefaultFromRules({
+      ...out,
+      assetLiabilityRatioBefore: alr0,
+      assetLiabilityRatioAfter: alrAfter,
+    }, record, params);
     const revenue = (out.revenueAfter || 0) + (out.carbonCost || 0);
     const isHighCarbon = window.CRST_CARBON?.isHighCarbonIndustry?.(record.standardIndustry, record.gbIndustryCode);
     const operatingExpense = isHighCarbon
@@ -1686,7 +1706,8 @@
     return {
       ...out,
       operatingExpense: Math.round(operatingExpense * 100) / 100,
-      defaultReason,
+      defaultFlag: defaultEval.defaultFlag,
+      defaultReason: defaultEval.defaultReason,
       assetLiabilityRatioBefore: alr0,
       assetLiabilityRatioAfter: alrAfter,
       alrIncreasePct,
@@ -1822,6 +1843,7 @@
     return tasks.filter((t) => {
       if (kw && !t.taskName.toLowerCase().includes(kw)) return false;
       if (taskFilters.reportYear && String(getTaskReportYear(t)) !== taskFilters.reportYear) return false;
+      if (taskFilters.baselineYear && String(getTaskBaselineYear(t)) !== taskFilters.baselineYear) return false;
       if (taskFilters.loanType && t.loanType !== taskFilters.loanType) return false;
       if (taskFilters.loanRegion && t.loanRegion !== taskFilters.loanRegion) return false;
       return true;
@@ -1933,6 +1955,7 @@
     return {
       name: document.getElementById('tf_name')?.value || '',
       reportYear: document.getElementById('tf_report_year')?.value || '',
+      baselineYear: document.getElementById('tf_baseline_year')?.value || '',
       loanType: document.getElementById('tf_loan_type')?.value || '',
       loanRegion: document.getElementById('tf_loan_region')?.value || '',
     };
@@ -1945,7 +1968,7 @@
   }
 
   function resetTaskFilters() {
-    taskFilters = { name: '', reportYear: '', loanType: '', loanRegion: '' };
+    taskFilters = { name: '', reportYear: '', baselineYear: '', loanType: '', loanRegion: '' };
     getListPager('tasks').page = 1;
     render();
   }
@@ -1985,6 +2008,18 @@
     return !!t.financialDataSynced || (!('financialDataSynced' in t) && t.status !== 'DRAFT');
   }
 
+  const baseTableGenerationSteps = [
+    { key: 'customerBasic', flag: 'customerBasicTableGenerated', label: '参试客户基础信息表' },
+    { key: 'customerFinancial', flag: 'customerFinancialTableGenerated', label: '参试客户基期财务数据表' },
+    { key: 'bankBasic', flag: 'bankBasicTableGenerated', label: '参试银行基础信息表' },
+    { key: 'highCarbonCustomer', flag: 'highCarbonCustomerTableGenerated', label: '高碳行业客户基础信息表' },
+    { key: 'industryLoan', flag: 'industryLoanTableGenerated', label: '分行业贷款信息表' },
+  ];
+
+  function hasGeneratedBaseTable(t, index) {
+    return !!t && (!!t.baseTablesGenerated || !!t[baseTableGenerationSteps[index].flag] || ['READY_STRESS', 'COMPLETED', 'ARCHIVED'].includes(t.status));
+  }
+
   function canEnableDataSyncStep(t, step, taskId, syncDisabled) {
     if (!t || syncDisabled) return false;
     switch (step) {
@@ -1999,7 +2034,15 @@
       case 5:
         return !!t.eclDataSynced && !t.gelanDataSynced;
       case 6:
-        return !!t.gelanDataSynced && !t.baseTablesGenerated;
+        return !!t.gelanDataSynced && !hasGeneratedBaseTable(t, 0);
+      case 7:
+        return hasGeneratedBaseTable(t, 0) && !hasGeneratedBaseTable(t, 1);
+      case 8:
+        return hasGeneratedBaseTable(t, 1) && !hasGeneratedBaseTable(t, 2);
+      case 9:
+        return hasGeneratedBaseTable(t, 2) && !hasGeneratedBaseTable(t, 3);
+      case 10:
+        return hasGeneratedBaseTable(t, 3) && !hasGeneratedBaseTable(t, 4);
       default:
         return false;
     }
@@ -2098,6 +2141,12 @@
     return Number.isFinite(y) ? y : new Date().getFullYear();
   }
 
+  function getTaskBaselineYear(t) {
+    if (t?.baselineYear != null && t.baselineYear !== '') return Number(t.baselineYear);
+    const reportYear = getTaskReportYear(t);
+    return Number.isFinite(reportYear) ? reportYear - 1 : new Date().getFullYear() - 1;
+  }
+
   function buildTaskReportYearFilterOptions(selectedYear = '') {
     const years = new Set(
       tasks.map((t) => getTaskReportYear(t)).filter((y) => Number.isFinite(y))
@@ -2115,14 +2164,26 @@
     ].join('');
   }
 
+  function buildTaskBaselineYearFilterOptions(selectedYear = '') {
+    const years = new Set(
+      tasks.map((t) => getTaskBaselineYear(t)).filter((y) => Number.isFinite(y))
+    );
+    if (selectedYear) years.add(Number(selectedYear));
+    return [
+      '<option value="">全部</option>',
+      ...[...years].sort((a, b) => b - a).map((y) =>
+        `<option value="${y}" ${selectedYear === String(y) ? 'selected' : ''}>${y}</option>`
+      ),
+    ].join('');
+  }
+
   function taskReportPeriodRange(t) {
     const y = getTaskReportYear(t);
     return { start: `${y}-01-01`, end: `${y}-12-31` };
   }
 
   function getTaskDataYears(t) {
-    const basicYear = getTaskReportYear(t);
-    return { basicYear, financialYear: basicYear };
+    return { basicYear: getTaskBaselineYear(t), financialYear: getTaskReportYear(t) };
   }
 
   const BRANCH_PROVINCE_MAP = {
@@ -2275,7 +2336,7 @@
   function ensureTaskRecordsEnriched(taskId, t) {
     const recs = recordsByTask[taskId];
     if (!recs?.length) return;
-    const reportYear = getTaskReportYear(t);
+    const reportYear = getTaskBaselineYear(t);
     recs.forEach((r) => {
       enrichLoanSyncRecordFields(r, reportYear);
       if (hasTaskFinancialDataSynced(t)) {
@@ -2284,8 +2345,8 @@
         clearFinancialSyncRecordFields(r);
       }
     });
-    t.basicInfoYear = reportYear;
-    t.financialDataYear = reportYear - 1;
+    t.basicInfoYear = getTaskBaselineYear(t);
+    t.financialDataYear = getTaskReportYear(t);
   }
 
   function formatCustomerIndustryLabel(r) {
@@ -2717,57 +2778,225 @@
     return `<div class="table-wrap fin-sync-table"><table>${renderFinancialSyncTableHead(t, opts)}<tbody>${rows}</tbody></table></div>`;
   }
 
+  const FINANCIAL_REPORT_VERSIONS = [
+    { key: 'ENT_05', label: '企业统一05版', metrics: [
+      ['monetaryFunds', '货币资金（元）05版', 'BS01'], ['notesReceivable', '应收票据（元）05版', 'BS03'], ['accountsReceivable', '应收账款（元）05版', 'BS06'], ['inventory', '存货（元）05版', 'BS12'],
+      ['shortTermInvestments', '短期投资（元）05版', 'BS02'], ['prepaidExpenses', '待摊费用（元）05版', 'BS15'], ['currentAssetLoss', '待处理流动资产净损失（元）05版', 'BS16'], ['totalCurrentAssets', '流动资产合计（元）05版', 'BS19'],
+      ['fixedAssetsNet', '固定资产净额（元）05版', 'BS29'], ['longTermInvestments', '长期投资合计（元）05版', 'BS24'], ['fixedAssets', '固定资产清理（元）05版', 'BS30'], ['fixedAssetLoss', '固定资产净损失（元）05版', 'BS33'],
+      ['intangibleAssets', '无形资产（元）05版', 'BS35'], ['deferredAssets', '递延资产（长期待摊费用）（元）05版', 'BS37'], ['deferredTaxDebit', '递延税款借项（元）05版', 'BS43'], ['totalAssets', '资产合计（元）05版', 'BS44'],
+      ['shortTermBorrowings', '短期借款（元）05版', 'BS45'], ['notesPayable', '应付票据（元）05版', 'BS46'], ['accountsPayable', '应付账款（元）05版', 'BS47'], ['advancesReceived', '预收账款（元）05版', 'BS48'],
+      ['currentMaturityLongDebt', '一年内到期的长期负债（元）05版', 'BS57'], ['totalCurrentLiabilities', '流动负债合计（元）05版', 'BS58'], ['longTermBorrowings', '长期借款（元）05版', 'BS59'], ['bondsPayable', '应付债券（元）05版', 'BS60'],
+      ['totalLongTermLiabilities', '长期负债合计（元）05版', 'BS64'], ['totalLiabilities', '负债合计（元）05版', 'BS68'], ['paidInCapital', '实收资本（或股本）（元）05版', 'BS70'], ['surplusReserve', '盈余公积（元）05版', 'BS79'],
+      ['undistributedProfit', '未分配利润（元）05版', 'BS84'], ['retainedEarnings', '留存收益（元）05版', 'BS79+BS84'], ['ownersEquity', '所有者权益合计（元）05版', 'BS86'], ['operatingRevenue', '主营业务收入（元）05版', 'PL01'],
+      ['operatingRevenueNet', '主营业务收入净额（元）05版', 'PL05'], ['operatingCost', '主营业务成本（元）05版', 'PL06'], ['businessTax', '主营业务税金及附加（元）05版', 'PL08'], ['sellingExpense', '营业费用（元）05版', 'PL16'],
+      ['managementExpense', '管理费用（元）05版', 'PL17'], ['financialExpense', '财务费用（元）05版', 'PL18'], ['otherIncome', '其他（元）05版', 'PL19'], ['operatingProfit', '营业利润（元）05版', 'PL20'],
+      ['totalProfit', '利润总额（元）05版', 'PL39'], ['incomeTax', '所得税（元）05版', 'PL40'], ['netProfit', '净利润（元）05版', 'PL43'], ['operatingCashFlow', '经营活动产生的现金流量净额', 'CF10'],
+      ['investingCashReceived', '投资活动收到的现金', 'CF01'], ['cashInflows', '现金流入小计（元）05版', 'CF04'], ['cashNetIncrease', '现金及现金等价物净增加额（元）05版', 'CF5'], ['assetImpairmentProvision', '计提的资产减值准备（元）05版', 'CF33'],
+    ] },
+    { key: 'ENT_07', label: '企业统一07版', metrics: [
+      ['monetaryFunds', '货币资金（元）07版', 'ZCFZ01'], ['notesReceivable', '应收票据（元）07版', 'ZCFZ05'], ['accountsReceivable', '应收账款（元）07版', 'ZCFZ06'], ['inventory', '存货（元）07版', 'ZCFZ15'],
+      ['shortTermInvestments', '短期投资（元）07版', 'ZCFZ03 1'], ['totalCurrentAssets', '流动资产合计（元）07版', 'ZCFZ18'], ['fixedAssets', '固定资产（元）07版', 'ZCFZ25'], ['availableForSaleAssets', '可供出售金融资产（元）07版', 'ZCFZ20'],
+      ['heldToMaturityInvestments', '持有至到期投资（元）07版', 'ZCFZ21'], ['longTermReceivables', '长期应收款（元）07版', 'ZCFZ22'], ['notesPayable', '应付票据（元）07版', 'ZCFZ44'], ['accountsPayable', '应付账款（元）07版', 'ZCFZ45'],
+      ['advancesReceived', '预收款项（元）07版', 'ZCFZ46'], ['contractLiabilities', '合同负债（元）07版', 'ZCFZ46 1'], ['currentMaturityNonCurrentDebt', '一年内到期的非流动负债（元）07版', 'ZCFZ58'], ['otherCurrentLiabilities', '其他流动负债（元）07版', 'ZCFZ59'],
+      ['totalCurrentLiabilities', '流动负债合计（元）07版', 'ZCFZ60'], ['longTermBorrowings', '长期借款（元）07版', 'ZCFZ61'], ['bondsPayable', '应付债券（元）07版', 'ZCFZ62'], ['operatingCost', '营业成本（元）07版', 'ST07'],
+      ['taxesSurcharges', '税金及附加（元）07版', 'SY15'], ['sellingExpense', '销售费用（元）07版', 'SY16'], ['managementExpense', '管理费用（元）07版', 'SY17'], ['rdExpense', '研发费用（元）07版', 'SY17 1'],
+      ['financialExpense', '财务费用（元）07版', 'SY18'], ['investmentIncome', '投资收益（元）07版', 'SY21'], ['operatingProfit', '营业利润（元）07版', 'SY24'], ['totalProfit', '利润总额（元）07版', 'SY28'],
+      ['incomeTax', '所得税费用（元）07版', 'ST29'], ['netProfit', '净利润（元）07版', 'ST30'], ['assetImpairmentProvision', '资产减值准备（元）07版', 'CF33'],
+    ] },
+    { key: 'UNIVERSITY', label: '高校', metrics: [
+      ['totalCurrentAssets', '流动资产合计（万元）'], ['fixedAssets', '固定资产（万元）'],
+      ['totalLiabilities', '负债合计（万元）'], ['operatingRevenue', '本年收入合计（万元）'],
+    ] },
+    { key: 'INSTITUTION', label: '事业单位', metrics: [
+      ['totalCurrentAssets', '流动资产合计（万元）'], ['fixedAssets', '固定资产（万元）'],
+      ['totalLiabilities', '负债合计（万元）'], ['operatingRevenue', '财政补助收入（万元）'],
+    ] },
+    { key: 'INSTITUTION_12', label: '事业统一12版', metrics: [
+      ['totalAssets', '资产总计（万元）'], ['totalLiabilities', '负债合计（万元）'],
+      ['operatingRevenue', '收入合计（万元）'], ['netProfit', '本期盈余（万元）'],
+    ] },
+    { key: 'HOSPITAL', label: '医院', metrics: [
+      ['totalCurrentAssets', '流动资产合计（万元）'], ['fixedAssets', '固定资产（万元）'],
+      ['totalLiabilities', '负债合计（万元）'], ['operatingRevenue', '医疗收入（万元）'],
+    ] },
+    { key: 'BANK', label: '银行', metrics: [
+      ['totalAssets', '资产总计（万元）'], ['totalLiabilities', '负债合计（万元）'],
+      ['operatingRevenue', '营业收入（万元）'], ['netProfit', '净利润（万元）'],
+    ] },
+    { key: 'SECURITIES', label: '证券', metrics: [
+      ['totalAssets', '资产总计（万元）'], ['totalLiabilities', '负债合计（万元）'],
+      ['operatingRevenue', '营业收入（万元）'], ['netProfit', '净利润（万元）'],
+    ] },
+    { key: 'FINANCE', label: '财务', metrics: [
+      ['totalAssets', '资产总计（万元）'], ['totalLiabilities', '负债合计（万元）'],
+      ['operatingRevenue', '营业收入（万元）'], ['netProfit', '净利润（万元）'],
+    ] },
+    { key: 'OTHER', label: '其他', metrics: [] },
+  ];
+
+  function financialVersionConfigByKey(key) {
+    return FINANCIAL_REPORT_VERSIONS.find((x) => x.key === key) || FINANCIAL_REPORT_VERSIONS[0];
+  }
+
+  function ensureFinancialRecordMeta(r, index, t) {
+    const config = financialVersionConfigByKey(r.financialReportVersionKey || FINANCIAL_REPORT_VERSIONS[index % FINANCIAL_REPORT_VERSIONS.length].key);
+    r.financialReportVersionKey = config.key;
+    r.financialReportVersion = config.label;
+    r.financialReportYear = r.financialReportYear || getTaskReportYear(t);
+    r.financialReportType = r.financialReportType || '年报';
+    r.financialReportScope = r.financialReportScope || '合并';
+    r.financialReportStatus = r.financialReportStatus || '已审计';
+    r.ratingModelCode = r.ratingModelCode || `MODEL-${String((index % 3) + 1).padStart(2, '0')}`;
+    r.ratingModelName = r.ratingModelName || r.internalRatingModel || '对公客户内部评级模型';
+    r.internalRating = r.internalRating || (r.pdValue >= 0.08 ? 'BBB-' : r.pdValue >= 0.03 ? 'BBB+' : 'A');
+    r.pdInternalT0 = r.pdInternalT0 ?? r.pdValue;
+    r.ratingResult1 = r.ratingResult1 || r.internalRating;
+    r.qualitativeScore = r.qualitativeScore ?? (72 + (index % 8));
+    r.creditScore = r.creditScore ?? (68 + (index % 10));
+    r.governmentSupportScore = r.governmentSupportScore ?? (60 + (index % 12));
+    r.pdEclT0 = r.pdEclT0 ?? r.pdValue ?? 0.02;
+    r.lgdT0 = r.lgdT0 ?? 0.45;
+    r.isHighCarbon = r.isHighCarbon ?? !!window.CRST_CARBON?.isHighCarbonIndustry?.(r.standardIndustry, r.gbIndustryCode);
+    r.industrySubCustomer = r.industrySubCustomer || r.industryName || r.standardIndustry || '-';
+    r.industrySubInvest = r.industrySubInvest || r.industryName || r.standardIndustry || '-';
+    return config;
+  }
+
+  function setFinancialVersionFilter(taskId, key) {
+    financialVersionFilters[taskId] = key;
+    render();
+  }
+
+  function selectPreferredFinancialRecords(list) {
+    const typeRank = { '年报': 4, '半年报': 3, '季报': 2, '其他': 1 };
+    const scopeRank = { '合并': 2, '本部': 1 };
+    const statusRank = { '已审计': 3, '未审计': 2, '其他': 1 };
+    const score = (r) => [typeRank[r.financialReportType] || 0, scopeRank[r.financialReportScope] || 0, statusRank[r.financialReportStatus] || 0, Number(r.financialReportYear) || 0];
+    const better = (a, b) => { const sa = score(a); const sb = score(b); for (let i = 0; i < sa.length; i++) { if (sa[i] !== sb[i]) return sa[i] > sb[i]; } return false; };
+    const selected = new Map();
+    (list || []).forEach((r) => { const key = r.creditCustomerNo || r.customerId || r.id; const current = selected.get(key); if (!current || better(r, current)) selected.set(key, r); });
+    return [...selected.values()];
+  }
+
+  function renderFinancialDataSection(t, list, opts = {}) {
+    const selected = financialVersionFilters[t.id] || FINANCIAL_REPORT_VERSIONS[0].key;
+    const records = selectPreferredFinancialRecords((list || []).filter((r) => !r.excluded));
+    records.forEach((r, i) => ensureFinancialRecordMeta(r, i, t));
+    const tabs = FINANCIAL_REPORT_VERSIONS.map((v) => {
+      const count = records.filter((r) => r.financialReportVersionKey === v.key).length;
+      return `<button type="button" class="financial-version-tab ${selected === v.key ? 'active' : ''}" onclick="CRST_APP.setFinancialVersionFilter(${t.id}, '${v.key}')">${esc(v.label)}<span>${count}</span></button>`;
+    }).join('');
+    const config = financialVersionConfigByKey(selected);
+    const rows = records.filter((r) => r.financialReportVersionKey === selected);
+    const metricHeads = config.metrics.map(([, label, code]) => `<th><span>${esc(label)}</span>${code ? `<small class="financial-subject-code">${esc(code)}</small>` : ''}</th>`).join('');
+    const generated = !!opts.generated;
+    const generatedActions = generated ? `<div class="toolbar-btn-group toolbar-btn-group--end"><button type="button" class="btn btn-default" onclick="CRST_APP.downloadGeneratedBaseTable(${t.id}, 'customerFinancial')">下载</button>${opts.readonly ? '' : `<button type="button" class="btn btn-default" onclick="CRST_APP.openDataProcessImportModal(${t.id})">导入</button>`}</div>` : '';
+    const body = hasTaskFinancialDataSynced(t) && rows.length
+      ? rows.map((r, i) => `<tr>
+          <td>${i + 1}</td>
+          <td>${esc(r.creditCustomerNo || '-')}</td>
+          <td>${esc(r.companyName || '-')}</td>
+          <td class="num">${fmtFinAmount(r.loanBalance)}</td>
+          <td class="num">${fmtFinAmount(r.provisionAmount)}</td>
+          <td>${esc(loanClassLabel(r.loanClassification))}</td>
+          <td>${esc(r.isHighCarbon ? '是' : '否')}</td>
+          <td>${esc(r.industrySubCustomer || r.industryName || r.standardIndustry || '-')}</td>
+          <td>${esc(r.industrySubInvest || r.industryName || r.standardIndustry || '-')}</td>
+          <td>${esc(r.standardIndustry || '-')}</td>
+          <td>${esc(r.ratingModelCode || '-')}</td>
+          <td>${esc(r.ratingModelName || '-')}</td>
+          <td>${esc(r.internalRating || '-')}</td>
+          <td class="num">${formatPdMetric(r.pdInternalT0 ?? r.pdValue)}</td>
+          <td>${r.reportMissing ? '否' : '是'}</td>
+          <td>${r.financialReportYear}</td>
+          <td>${esc(r.financialReportVersion)}</td>
+          <td>${esc(r.financialReportType)}</td>
+          <td>${esc(r.financialReportScope)}</td>
+          <td>${esc(r.financialReportStatus)}</td>
+          <td class="num">${formatAlrPercent(r.assetLiabilityRatio)}</td>
+          <td>${r.loanClassification && BAD_LOAN_CLASSES.has(r.loanClassification) ? '是' : '否'}</td>
+          ${config.metrics.map(([key]) => `<td class="num">${fmtFinAmount(r[key] ?? (key === 'operatingRevenue' ? r.revenue : null))}</td>`).join('')}
+          ${generated ? `<td>${esc(buildFinancialDataWarning(r))}</td>` : ''}
+          <td>${r.financialDataSynced ? '已同步' : '待同步'}</td>
+        </tr>`).join('')
+      : `<tr><td colspan="${20 + config.metrics.length + (generated ? 1 : 0)}" class="empty">${t.internalRatingDataSynced ? '请点击“同步财务数据”获取财务报表' : '请先同步内部评级数据'}</td></tr>`;
+    return `
+      <section class="financial-source-section">
+        <div class="financial-source-heading">
+          <div>
+            <h4 class="step-subtitle">${esc(opts.title || '财务数据')}</h4>
+            <p class="flow-hint">${esc(opts.hint || '根据任务概览的财报年份、贷款数据的信贷客户编号及内部评级数据的会计科目代码，从数仓调取对应版本的会计科目名称和会计科目值。')}</p>
+          </div>
+          ${generatedActions}
+        </div>
+        <div class="financial-version-tabs">${tabs}</div>
+        <div class="table-wrap fin-sync-table financial-source-table"><table>
+          <thead><tr>
+            <th>序号</th><th>信贷客户编号</th><th>客户名称</th><th>业务余额（折人民币）</th><th>拨备计提金额（折人民币）</th><th>基期五级分类</th><th>是否为高碳客户</th>
+            <th>行业小类（客户）</th><th>行业小类（投向）</th><th>所属行业</th><th>评级模型代码</th><th>评级模型名称</th><th>评级等级（认定结果）</th><th>基期PD内评t0</th>
+            <th>是否有财报</th><th>报表年份</th><th>财务报表版本</th><th>财务报表类型</th><th>财务报表范围（本部/合并）</th><th>财务报表状态</th><th>基期资产负债率</th><th>是否违约</th>
+            ${metricHeads}${generated ? '<th>说明</th>' : ''}<th>同步状态</th>
+          </tr></thead><tbody>${body}</tbody>
+        </table></div>
+      </section>`;
+  }
+
+  function buildFinancialDataWarning(r) {
+    const messages = [];
+    if (Number(r.totalAssets) < 0) messages.push('资产总额为负值');
+    if (r.totalLiabilities != null && r.loanBalance != null && Number(r.totalLiabilities) < Number(r.loanBalance)) messages.push('负债总额小于贷款余额');
+    if (r.totalAssets != null && r.loanBalance != null && Number(r.totalAssets) < Number(r.loanBalance)) messages.push('资产总额小于贷款余额');
+    if (Number(r.loanRemainingTermYears) < 0) messages.push('贷款剩余期限为负值');
+    return messages.join('；');
+  }
+
+  function renderDataSourceSection(title, hint, headers, rows, ready, emptyText) {
+    const body = ready && rows.length ? rows.join('') : `<tr><td colspan="${headers.length}" class="empty">${esc(emptyText)}</td></tr>`;
+    return `<section class="data-source-section"><h4 class="step-subtitle">${esc(title)}</h4><p class="flow-hint">${esc(hint)}</p><div class="table-wrap data-source-table"><table><thead><tr>${headers.map((h) => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table></div></section>`;
+  }
+
+  function renderLoanDataSection(t, records) {
+    const headers = ['序号','信贷客户编号','客户名称','核心账号','统一社会信用代码','所在地区（省/自治区/直辖市）','所在分行','贷款类型','业务余额（折人民币）','拨备计提金额（折人民币）','信贷业务种类','基期五级分类','行业小类（客户）','行业小类（投向）'];
+    const rows = records.map((r,i) => `<tr><td>${i+1}</td><td>${esc(r.creditCustomerNo||'-')}</td><td>${esc(r.companyName||'-')}</td><td>${esc(r.coreAccountNo||'-')}</td><td>${esc(r.unifiedSocialCreditCode||'-')}</td><td>${esc(r.province||provinceFromBranch(r.branchName))}</td><td>${esc(r.branchName||'-')}</td><td>${esc(t.loanType === 'CORPORATE' ? '对公（含普惠）' : t.loanType === 'PERSONAL_BUSINESS' ? '个人经营性贷款' : '个人贷款')}</td><td>${fmtFinAmount(r.loanBalance)}</td><td>${fmtFinAmount(r.provisionAmount)}</td><td>${esc(r.creditBusinessType||'流动资金贷款')}</td><td>${esc(loanClassLabel(r.loanClassification))}</td><td>${esc(r.industrySubCustomer||r.industryName||'-')}</td><td>${esc(r.industrySubInvest||r.industryName||'-')}</td></tr>`);
+    return renderDataSourceSection('贷款数据', `根据任务概览的基准年度 ${getTaskBaselineYear(t)} 及全部行业口径，从综合报表系统调取。`, headers, rows, hasTaskLoanDataSynced(t), '请先同步贷款数据');
+  }
+
+  function renderInternalRatingDataSection(t, records) {
+    const headers = ['序号','信贷客户编号','客户名称','评级模型代码','评级模型名称','评级等级（认定结果）','评级结果1','违约概率PD内评t0','定性指标总分值（加权后）','征信指标总分值（加权后）','政府支持指标总分值（加权后）'];
+    const rows = records.map((r,i) => `<tr><td>${i+1}</td><td>${esc(r.creditCustomerNo||'-')}</td><td>${esc(r.companyName||'-')}</td><td>${esc(r.ratingModelCode||'-')}</td><td>${esc(r.ratingModelName||'-')}</td><td>${esc(r.internalRating||'-')}</td><td>${esc(r.ratingResult1||'-')}</td><td>${formatPdMetric(r.pdInternalT0)}</td><td>${r.qualitativeScore??'-'}</td><td>${r.creditScore??'-'}</td><td>${r.governmentSupportScore??'-'}</td></tr>`);
+    return renderDataSourceSection('内部评级数据', `根据基准年度 ${getTaskBaselineYear(t)} 和信贷客户编号从数仓调取；财报版本对应的评级规则不混用。`, headers, rows, !!t.internalRatingDataSynced || t.status !== 'DRAFT', '请先同步内部评级数据');
+  }
+
+  function renderEclDataSection(t, records) {
+    const headers = ['序号','核心账号','信贷客户编号','客户名称','违约概率PDECLt0','违约损失率LGDt0'];
+    const rows = records.map((r,i) => `<tr><td>${i+1}</td><td>${esc(r.coreAccountNo||'-')}</td><td>${esc(r.creditCustomerNo||'-')}</td><td>${esc(r.companyName||'-')}</td><td>${formatPdMetric(r.pdEclT0)}</td><td>${formatPdMetric(r.lgdT0)}</td></tr>`);
+    return renderDataSourceSection('预期信用损失数据', `根据基准年度 ${getTaskBaselineYear(t)} 和核心账号从减估值系统调取。`, headers, rows, !!t.eclDataSynced || t.status !== 'DRAFT', '请先同步预期信用损失数据');
+  }
+
+  function renderGelanDataSection(t, records) {
+    const headers = ['序号','信贷客户编号','客户名称','是否为高碳客户','披露温室气体排放情况（是/否）','温室气体排放量（吨二氧化碳当量）','机场吞吐量'];
+    const rows = records.map((r,i) => `<tr><td>${i+1}</td><td>${esc(r.creditCustomerNo||'-')}</td><td>${esc(r.companyName||'-')}</td><td>${r.isHighCarbon?'是':'否'}</td><td>${r.isHighCarbon ? (r.ghgAccounted?'是':'否') : '否'}</td><td>${r.isHighCarbon ? fmtFinAmount(r.ghgEmissions??0) : '0'}</td><td>${r.isHighCarbon ? fmtFinAmount(r.airportThroughput??0) : '0'}</td></tr>`);
+    return renderDataSourceSection('格澜数据', '按高碳行业映射调取高碳客户数据；非高碳客户相应字段为0。', headers, rows, hasTaskGelanDataSynced(t), '请先同步格澜数据');
+  }
+
   const CUSTOMER_BASIC_INFO_EXPORT_HEADERS = [
-    '序号', '客户号', '信贷客户编号', '核心账号', '客户名称', '统一社会信用代码', '所在地区', '所属行业',
-    '贷款余额（万元）', '贷款期限（年）', '贷款剩余期限（年）', '贷款五级分类', '拨备计提金额（万元）',
-    '资产总额（万元）', '货币资金（万元）', '应收票据（万元）', '应收账款（万元）',
-    '存货（万元）', '流动资产合计（万元）', '固定资产（万元）', '负债总额（万元）',
-    '所有者权益（万元）', '实收资本（万元）', '营业收入（万元）', '营业成本（万元）',
-    '利润总额（万元）', '净利润（万元）', '披露温室气体排放情况', '温室气体排放量（吨CO2当量）',
+    '序号','信贷客户编号','客户名称','核心账号','统一社会信用代码','所在地区（省/自治区/直辖市）','所在分行','贷款类型','业务余额（折人民币）','拨备计提金额（折人民币）','信贷业务种类','基期五级分类','是否为高碳客户',
+    '行业门类（客户）','行业大类（客户）','行业中类（客户）','行业小类（客户）','行业门类（投向）','行业大类（投向）','行业中类（投向）','行业小类（投向）','所属行业','业务发放日','业务到期日','业务期限（天）',
+    '评级模型代码','评级模型名称','评级等级（认定结果）','评级结果1','定性指标总分值（加权后）','征信指标总分值（加权后）','政府支持指标总分值（加权后）','基期PD内评t0','基期PDECLt0','基期LGDt0','PDTTC','是否有财报','财务报表版本','基期资产负债率','披露温室气体排放情况（是/否）','温室气体排放量（吨二氧化碳当量）','机场吞吐量','说明'
   ];
 
   function buildCustomerBasicInfoExportText(taskId, records) {
     const t = getTask(taskId);
     const { basicYear, financialYear } = getTaskDataYears(t || {});
     const lines = [
-      '高碳行业客户基础信息表',
+      '参试客户基础信息表',
       `任务：${t?.taskName || taskId}`,
       `基本情况：${basicYear}年；财务状况/温室气体：${financialYear}年`,
       '',
       CUSTOMER_BASIC_INFO_EXPORT_HEADERS.join('\t'),
     ];
     (records || []).forEach((r, i) => {
-      lines.push([
-        i + 1,
-        r.customerId || '',
-        r.creditCustomerNo || '',
-        r.coreAccountNo || '',
-        r.companyName || '',
-        r.unifiedSocialCreditCode || '',
-        r.province || provinceFromBranch(r.branchName),
-        formatCustomerIndustryLabel(r),
-        r.loanBalance ?? '',
-        r.loanTermYears ?? '',
-        r.loanRemainingTermYears ?? '',
-        loanClassLabel(r.loanClassification),
-        r.provisionAmount ?? '',
-        r.totalAssets ?? '',
-        r.monetaryFunds ?? '',
-        r.notesReceivable ?? '',
-        r.accountsReceivable ?? '',
-        r.inventory ?? '',
-        r.totalCurrentAssets ?? '',
-        r.fixedAssets ?? '',
-        r.totalLiabilities ?? '',
-        r.ownersEquity ?? '',
-        r.paidInCapital ?? '',
-        r.operatingRevenue ?? r.revenue ?? '',
-        r.operatingCost ?? '',
-        r.totalProfit ?? '',
-        r.netProfit ?? '',
-        r.ghgAccounted ? '是' : '否',
-        r.ghgAccounted && r.ghgEmissions != null ? r.ghgEmissions : '',
-      ].join('\t'));
+      lines.push([i + 1, ...CUSTOMER_BASIC_INFO_COLUMNS.map(([key]) => customerBasicInfoCell(r, key, t))].join('\t'));
     });
     return lines.join('\n');
   }
@@ -2777,11 +3006,47 @@
     if (!recs.length) { toast('暂无可导出客户数据', 'info'); return; }
     const t = getTask(taskId);
     triggerExportFileDownload(
-      `高碳行业客户基础信息表_${t?.taskName || taskId}.txt`,
+      '参试客户基础信息表.xlsx',
       buildCustomerBasicInfoExportText(taskId, recs),
     );
     addLog(taskId, `数据处理：导出客户基础信息表 ${recs.length} 条`);
     toast(`已导出客户基础信息 ${recs.length} 条`);
+  }
+
+  const CUSTOMER_BASIC_INFO_COLUMNS = [
+    ['creditCustomerNo','信贷客户编号'], ['companyName','客户名称'], ['coreAccountNo','核心账号'], ['unifiedSocialCreditCode','统一社会信用代码'],
+    ['province','所在地区（省/自治区/直辖市）'], ['branchName','所在分行'], ['loanType','贷款类型'], ['loanBalance','业务余额（折人民币）'],
+    ['provisionAmount','拨备计提金额（折人民币）'], ['creditBusinessType','信贷业务种类'], ['loanClassification','基期五级分类'], ['isHighCarbon','是否为高碳客户'],
+    ['industrySectionCustomer','行业门类（客户）'], ['industryMajorCustomer','行业大类（客户）'], ['industryMiddleCustomer','行业中类（客户）'], ['industrySubCustomer','行业小类（客户）'],
+    ['industrySectionInvest','行业门类（投向）'], ['industryMajorInvest','行业大类（投向）'], ['industryMiddleInvest','行业中类（投向）'], ['industrySubInvest','行业小类（投向）'],
+    ['standardIndustry','所属行业'], ['loanIssueDate','业务发放日'], ['loanMaturityDate','业务到期日'], ['loanTermDays','业务期限（天）'],
+    ['ratingModelCode','评级模型代码'], ['ratingModelName','评级模型名称'], ['internalRating','评级等级（认定结果）'], ['ratingResult1','评级结果1'],
+    ['qualitativeScore','定性指标总分值（加权后）'], ['creditScore','征信指标总分值（加权后）'], ['governmentSupportScore','政府支持指标总分值（加权后）'], ['pdInternalT0','基期PD内评t0'],
+    ['pdEclT0','基期PDECLt0'], ['lgdT0','基期LGDt0'], ['pdTtc','PDTTC'], ['hasReport','是否有财报'], ['financialReportVersion','财务报表版本'],
+    ['assetLiabilityRatio','基期资产负债率'], ['ghgAccounted','披露温室气体排放情况（是/否）'], ['ghgEmissions','温室气体排放量（吨二氧化碳当量）'], ['airportThroughput','机场吞吐量'], ['note','说明'],
+  ];
+
+  function customerBasicInfoCell(r, key, t) {
+    const industry = r.industryName || r.standardIndustry || '-';
+    const values = {
+      province: r.province || provinceFromBranch(r.branchName),
+      loanType: t.loanType === 'CORPORATE' ? '对公（含普惠）' : t.loanType === 'PERSONAL_BUSINESS' ? '个人经营性贷款' : '个人贷款',
+      creditBusinessType: r.creditBusinessType || '流动资金贷款', loanClassification: loanClassLabel(r.loanClassification), isHighCarbon: r.isHighCarbon ? '是' : '否',
+      industrySectionCustomer: industry, industryMajorCustomer: industry, industryMiddleCustomer: industry, industrySubCustomer: r.industrySubCustomer || industry,
+      industrySectionInvest: industry, industryMajorInvest: industry, industryMiddleInvest: industry, industrySubInvest: r.industrySubInvest || industry,
+      loanIssueDate: r.loanIssueDate || `${getTaskBaselineYear(t)}-01-01`, loanMaturityDate: r.loanMaturityDate || `${getTaskBaselineYear(t)+3}-12-31`, loanTermDays: r.loanTermDays ?? Math.round((r.loanTermYears ?? 5)*365),
+      pdTtc: r.pdInternalT0 ?? r.pdEclT0, hasReport: r.reportMissing ? '否' : '是', ghgAccounted: r.ghgAccounted ? '是' : '否', note: buildFinancialDataWarning(r),
+    };
+    const value = key in values ? values[key] : r[key];
+    if (['loanBalance','provisionAmount','ghgEmissions','airportThroughput'].includes(key)) return fmtFinAmount(value);
+    if (key === 'assetLiabilityRatio') return formatAlrPercent(value);
+    if (['pdInternalT0','pdEclT0','lgdT0','pdTtc'].includes(key)) return formatPdMetric(Number(value));
+    return esc(value ?? '-');
+  }
+
+  function renderCustomerBasicExactTable(t, list) {
+    const rows = list.map((r,i) => `<tr><td>${i+1}</td>${CUSTOMER_BASIC_INFO_COLUMNS.map(([key]) => `<td>${customerBasicInfoCell(r,key,t)}</td>`).join('')}</tr>`).join('');
+    return `<div class="table-wrap customer-basic-exact-table"><table><thead><tr><th>序号</th>${CUSTOMER_BASIC_INFO_COLUMNS.map(([,label]) => `<th>${esc(label)}</th>`).join('')}</tr></thead><tbody>${rows || `<tr><td colspan="${CUSTOMER_BASIC_INFO_COLUMNS.length+1}" class="empty">暂无数据</td></tr>`}</tbody></table></div>`;
   }
 
   function renderCustomerBasicInfoSection(t, list, opts = {}) {
@@ -2797,12 +3062,7 @@
       showInternalCol: !!opts.showInternalCol,
       readonly,
     };
-    const table = renderFinancialSyncTable(
-      list,
-      t,
-      tableOpts,
-      opts.emptyText || '请先同步数据',
-    );
+    const table = renderCustomerBasicExactTable(t, list);
     const showToolbar = opts.showToolbar !== false && list.length;
     const exportTaskId = opts.exportTaskId ?? t.id;
     const taskRecs = recordsByTask[t.id] || list || [];
@@ -2816,16 +3076,46 @@
           ${showIndustryEditBtn ? `<button type="button" class="btn btn-edit-highlight" onclick="CRST_APP.openIndustryEditModal(${exportTaskId})">编辑行业</button>` : ''}
         </div>
         <div class="toolbar-btn-group toolbar-btn-group--end">
-          <button type="button" class="btn btn-default" onclick="CRST_APP.exportCustomerBasicInfo(${exportTaskId})">导出客户基础信息</button>
-          ${readonly ? '' : `<button type="button" class="btn btn-default" onclick="CRST_APP.openDataProcessImportModal(${exportTaskId})">导入客户基础信息</button>`}
+          <button type="button" class="btn btn-default" onclick="CRST_APP.downloadGeneratedBaseTable(${exportTaskId}, 'customerBasic')">下载</button>
+          ${readonly ? '' : `<button type="button" class="btn btn-default" onclick="CRST_APP.openDataProcessImportModal(${exportTaskId})">导入</button>`}
         </div>
       </div>` : '';
     return `
       <div class="customer-basic-info-section">
-        <h4 class="step-subtitle">高碳行业客户基础信息表</h4>
+        <h4 class="step-subtitle">参试客户基础信息表</h4>
         ${toolbar}
         ${table}
       </div>`;
+  }
+
+  function downloadGeneratedBaseTable(taskId, key) {
+    const t = getTask(taskId);
+    if (!t) return;
+    const spec = baseTableGenerationSteps.find((item) => item.key === key);
+    if (!spec) return;
+    const recs = (recordsByTask[taskId] || []).filter((r) => !r.excluded && (key !== 'highCarbonCustomer' || r.isHighCarbon));
+    const lines = [spec.label, `任务：${t.taskName || taskId}`, '', '序号\t信贷客户编号\t客户名称\t所属行业\t业务余额（折人民币）'];
+    recs.forEach((r,i) => lines.push(`${i+1}\t${r.creditCustomerNo || ''}\t${r.companyName || ''}\t${r.standardIndustry || ''}\t${r.loanBalance ?? ''}`));
+    triggerExportFileDownload(`${spec.label}.xlsx`, lines.join('\n'));
+    addLog(taskId, `数据处理：下载${spec.label}`);
+    toast(`已下载${spec.label}`);
+  }
+
+  function renderGeneratedTableToolbar(t, key, readonly) {
+    return `<div class="toolbar-btn-group toolbar-btn-group--end"><button type="button" class="btn btn-default" onclick="CRST_APP.downloadGeneratedBaseTable(${t.id}, '${key}')">下载</button>${readonly ? '' : `<button type="button" class="btn btn-default" onclick="CRST_APP.openDataProcessImportModal(${t.id})">导入</button>`}</div>`;
+  }
+
+  function renderHighCarbonCustomerTable(t, records, readonly) {
+    const list = records.filter((r) => r.isHighCarbon);
+    const rows = list.map((r,i) => `<tr><td>${i+1}</td><td>${esc(r.creditCustomerNo||'-')}</td><td>${esc(r.companyName||'-')}</td><td>${esc(r.standardIndustry||'-')}</td><td>${fmtFinAmount(r.loanBalance)}</td><td>${esc(loanClassLabel(r.loanClassification))}</td><td>${formatPdMetric(r.pdInternalT0 ?? r.pdEclT0)}</td><td>${formatPdMetric(r.lgdT0)}</td></tr>`).join('');
+    return `<section class="generated-base-section"><div class="financial-source-heading"><h4 class="step-subtitle">高碳行业客户基础信息表</h4>${renderGeneratedTableToolbar(t,'highCarbonCustomer',readonly)}</div><p class="flow-hint">根据上述步骤基础数据生成，按附件3模板管理。</p><div class="table-wrap"><table><thead><tr><th>序号</th><th>信贷客户编号</th><th>客户名称</th><th>所属行业</th><th>业务余额（折人民币）</th><th>基期五级分类</th><th>PDTTC</th><th>基期LGDt0</th></tr></thead><tbody>${rows || '<tr><td colspan="8" class="empty">暂无高碳行业客户</td></tr>'}</tbody></table></div></section>`;
+  }
+
+  function renderIndustryLoanTable(t, records, readonly) {
+    const groups = new Map();
+    records.filter((r) => !r.excluded).forEach((r) => { const k = r.standardIndustry || '未映射'; const g = groups.get(k) || {count:0,balance:0,provision:0}; g.count += 1; g.balance += Number(r.loanBalance)||0; g.provision += Number(r.provisionAmount)||0; groups.set(k,g); });
+    const rows = [...groups.entries()].map(([industry,g],i) => `<tr><td>${i+1}</td><td>${esc(industry)}</td><td>${g.count}</td><td>${fmtFinAmount(g.balance)}</td><td>${fmtFinAmount(g.provision)}</td></tr>`).join('');
+    return `<section class="generated-base-section"><div class="financial-source-heading"><h4 class="step-subtitle">分行业贷款信息表</h4>${renderGeneratedTableToolbar(t,'industryLoan',readonly)}</div><p class="flow-hint">根据上述步骤基础数据分行业汇总生成，按附件3模板管理。</p><div class="table-wrap"><table><thead><tr><th>序号</th><th>所属行业</th><th>客户数量</th><th>业务余额（折人民币）</th><th>拨备计提金额（折人民币）</th></tr></thead><tbody>${rows || '<tr><td colspan="5" class="empty">暂无数据</td></tr>'}</tbody></table></div></section>`;
   }
 
   function renderReferencedDataProcessTables(job, jobRecs) {
@@ -2954,7 +3244,7 @@
   }
 
   function defaultStressParams(t, scenarioCode) {
-    const reportYear = getTaskReportYear(t);
+    const reportYear = getTaskBaselineYear(t);
     const startYear = Number.isFinite(reportYear) ? Math.max(reportYear + 1, 2026) : 2026;
     const endYear = 2040;
     const carbonDef = scenarioCarbonDefaults(scenarioCode, startYear, endYear);
@@ -2968,13 +3258,7 @@
       assetLiabilityRatio: 0.65,
       baseNetProfitPositive: true,
     };
-    if (scenarioCode === 'GREENHOUSE_WORLD') {
-      return { ...common, physicalLossRatio: 0.08 };
-    }
-    if (scenarioCode === 'ORDERLY_TRANSITION') {
-      return { ...common, greenInvestmentRatio: 0.05 };
-    }
-    return { ...common, policyIntensity: 1 };
+    return common;
   }
 
   function defaultStressCommonParams(t) {
@@ -3013,7 +3297,7 @@
 
   function pickScenarioSpecificParams(p) {
     const out = {};
-    ['carbonPrice', 'assetLiabilityRatio', 'baseNetProfitPositive', 'costIncomeRatio', 'policyIntensity', 'physicalLossRatio', 'greenInvestmentRatio'].forEach((key) => {
+    ['carbonPrice', 'assetLiabilityRatio', 'baseNetProfitPositive', 'costIncomeRatio'].forEach((key) => {
       if (p[key] != null) out[key] = p[key];
     });
     return out;
@@ -3075,19 +3359,6 @@
     if (!Number.isFinite(p.assetLiabilityRatio) || p.assetLiabilityRatio < 0 || p.assetLiabilityRatio > 2) {
       return { ok: false, msg: '资产负债率需在 0~2 之间' };
     }
-    if (scenarioCode === 'BASELINE') {
-      if (!Number.isFinite(p.policyIntensity) || p.policyIntensity < 0.5 || p.policyIntensity > 2) {
-        return { ok: false, msg: '基准情景的政策执行强度建议在 0.5~2' };
-      }
-    } else if (scenarioCode === 'GREENHOUSE_WORLD') {
-      if (!Number.isFinite(p.physicalLossRatio) || p.physicalLossRatio < 0 || p.physicalLossRatio > 0.5) {
-        return { ok: false, msg: '温室世界的物理损失率需在 0~0.5' };
-      }
-    } else if (scenarioCode === 'ORDERLY_TRANSITION') {
-      if (!Number.isFinite(p.greenInvestmentRatio) || p.greenInvestmentRatio < 0 || p.greenInvestmentRatio > 0.5) {
-        return { ok: false, msg: '有序转型的绿色投资占比需在 0~0.5' };
-      }
-    }
     return { ok: true, params: p };
   }
 
@@ -3117,13 +3388,6 @@
       ...commonParsed.params,
       revenueGrowth: commonParsed.params.industryGrowthRate ?? commonParsed.params.revenueGrowth ?? saved.revenueGrowth,
     };
-    if (scenarioCode === 'BASELINE' && document.getElementById(scenarioInputId(taskId, scenarioCode, 'policyIntensity'))) {
-      p.policyIntensity = parseInputNumber(scenarioInputId(taskId, scenarioCode, 'policyIntensity'), true);
-    } else if (scenarioCode === 'GREENHOUSE_WORLD' && document.getElementById(scenarioInputId(taskId, scenarioCode, 'physicalLossRatio'))) {
-      p.physicalLossRatio = parseInputNumber(scenarioInputId(taskId, scenarioCode, 'physicalLossRatio'), true);
-    } else if (scenarioCode === 'ORDERLY_TRANSITION' && document.getElementById(scenarioInputId(taskId, scenarioCode, 'greenInvestmentRatio'))) {
-      p.greenInvestmentRatio = parseInputNumber(scenarioInputId(taskId, scenarioCode, 'greenInvestmentRatio'), true);
-    }
     const result = validateStressParams(p, scenarioCode);
     if (!result.ok && t && !isFinTransDone(t)) {
       return { ok: false, msg: '请先在「财务传导」步骤完成情景参数录入' };
@@ -3172,19 +3436,6 @@
 
   function applyScenarioAdjustment(out, scenarioCode, p) {
     const adj = { ...out };
-    if (scenarioCode === 'BASELINE') {
-      const mul = p.policyIntensity ?? 1;
-      adj.carbonCost = adj.carbonCost * mul;
-      adj.revenueAfter = adj.revenueAfter - (adj.carbonCost - out.carbonCost);
-    } else if (scenarioCode === 'GREENHOUSE_WORLD') {
-      const loss = p.physicalLossRatio ?? 0;
-      adj.revenueAfter = adj.revenueAfter * (1 - loss);
-      adj.eclAfter = adj.eclAfter * (1 + loss * 1.2);
-    } else if (scenarioCode === 'ORDERLY_TRANSITION') {
-      const inv = p.greenInvestmentRatio ?? 0;
-      adj.carbonCost = adj.carbonCost * (1 - inv * 0.6);
-      adj.revenueAfter = adj.revenueAfter * (1 - inv * 0.1);
-    }
     adj.impactRate = adj.revenueBefore > 0 ? Math.max(0, adj.carbonCost / adj.revenueBefore) : 0;
     adj.eclAfter = Math.max(0, adj.eclAfter);
     adj.revenueAfter = Math.max(0, adj.revenueAfter);
@@ -3192,16 +3443,6 @@
   }
 
   function buildScenarioExtraParamRow(entityId, code, p, scenarioReadonly) {
-    const dis = scenarioReadonly ? 'disabled' : '';
-    if (code === 'BASELINE') {
-      return `<div class="form-row"><label>政策执行强度系数</label><input class="input" id="${scenarioInputId(entityId, code, 'policyIntensity')}" type="number" step="0.01" value="${p.policyIntensity}" ${dis} /></div>`;
-    }
-    if (code === 'GREENHOUSE_WORLD') {
-      return `<div class="form-row"><label>物理损失率</label><input class="input" id="${scenarioInputId(entityId, code, 'physicalLossRatio')}" type="number" step="0.0001" value="${p.physicalLossRatio}" ${dis} /></div>`;
-    }
-    if (code === 'ORDERLY_TRANSITION') {
-      return `<div class="form-row"><label>绿色投资占比</label><input class="input" id="${scenarioInputId(entityId, code, 'greenInvestmentRatio')}" type="number" step="0.0001" value="${p.greenInvestmentRatio}" ${dis} /></div>`;
-    }
     return '';
   }
 
@@ -3521,7 +3762,7 @@
     const readonly = taskViewMode && !taskEditMode;
     const toolbarActions = `
       <div class="toolbar-btn-group toolbar-btn-group--end bank-capital-toolbar-actions">
-        <button type="button" class="btn btn-default" onclick="CRST_APP.exportBankCapitalMetrics(${t.id})">导出资本与拨备监管指标</button>
+        <button type="button" class="btn btn-default" onclick="CRST_APP.exportBankCapitalMetrics(${t.id})">下载</button>
       </div>`;
     const editToolbar = readonly ? '' : `
       <div class="toolbar step-toolbar-top bank-capital-edit-toolbar">
@@ -3561,7 +3802,8 @@
     }).join('');
     const toolbarActions = `
       <div class="toolbar-btn-group toolbar-btn-group--end bank-basic-info-toolbar-actions">
-        <button type="button" class="btn btn-default" onclick="CRST_APP.exportBankBasicInfo(${t.id})">导出参试银行基础信息</button>
+        <button type="button" class="btn btn-default" onclick="CRST_APP.exportBankBasicInfo(${t.id})">下载</button>
+        ${(taskViewMode && !taskEditMode) ? '' : `<button type="button" class="btn btn-default" onclick="CRST_APP.openBankBasicImportModal(${t.id})">导入</button>`}
       </div>`;
     return `
       <div class="bank-basic-info-section">
@@ -3569,7 +3811,7 @@
           <h4 class="step-subtitle">参试银行基础信息表</h4>
           ${toolbarActions}
         </div>
-        <p class="flow-hint bank-basic-info-hint">同步财务数据后根据当前客户清单动态汇总。</p>
+        <p class="flow-hint bank-basic-info-hint">根据上述步骤基础数据生成，按附件3模板管理。</p>
         <div class="table-wrap bank-basic-info-table">
           <table>
             <thead>
@@ -3594,7 +3836,7 @@
         ...BANK_BASIC_INFO_COLUMNS.map((c) => row.metrics?.[c.key] ?? ''),
       ].join('\t'));
     });
-    const capitalLines = ['', '参试银行资本与拨备监管指标', '指标名称\t数值'];
+    const capitalLines = ['', '资本与拨备监管指标', '指标名称\t数值'];
     BANK_BASIC_CAPITAL_ROWS.forEach((row) => {
       const val = info.capital?.[row.key];
       capitalLines.push([row.label, val != null ? val : ''].join('\t'));
@@ -3640,7 +3882,7 @@
     const labels = DATA_PROCESS_OFFLINE_EXPORT_FIELDS.map((f) => f.label);
     const keys = DATA_PROCESS_OFFLINE_EXPORT_FIELDS.map((f) => f.key);
     return [
-      '财务数据清单（Excel）',
+      '参试客户基期财务数据表',
       `任务：${t?.taskName || taskId}`,
       `导出条数：${records.length}（可使用 ${stats.usable}；需计算 ${stats.needAvg}；无法处理 ${stats.abnormal}；待甄别 ${disambig}；已排除 ${stats.excluded}）`,
       '说明：导出全部同步数据；待处理项可在线下补全「标准行业/收入/成本收入比/旅客吞吐量」等可填列后，通过「导入处理结果」回传。',
@@ -3662,7 +3904,7 @@
     const stats = countSyncStatus(records);
     const disambig = records.filter((r) => r.ambiguityCode && !r.ambiguityConfirmed).length;
     const sourceKey = `task-${taskId}`;
-    const scope = '全部财务同步数据';
+    const scope = '参试客户基期财务数据表';
     const fields = DATA_PROCESS_OFFLINE_EXPORT_FIELDS.map((f) => f.label).join(',');
     const filterDesc = `共 ${records.length} 条；可使用 ${stats.usable} 条；需计算 ${stats.needAvg} 条；无法处理 ${stats.abnormal} 条；待甄别 ${disambig} 条；已排除 ${stats.excluded} 条`;
     const { downloadFileName } = appendExportLog({
@@ -3673,6 +3915,7 @@
       sourceType: 'DATA_PROCESS',
       exportKind: 'OFFLINE',
       filterSnapshot: { context: 'dataProcessOffline', taskId, count: records.length, scope: 'all' },
+      downloadFileName: '参试客户基期财务数据表.xlsx',
     });
     addLog(taskId, `数据处理：导出全部财务数据 ${records.length} 条`);
     triggerExportFileDownload(downloadFileName, buildDataProcessOfflineExportText(taskId, records));
@@ -3881,7 +4124,7 @@
       toast('暂无可导出指标', 'info');
       return;
     }
-    triggerExportFileDownload(`参试银行资本与拨备监管指标_${t.taskName || taskId}.txt`, text);
+    triggerExportFileDownload('参试银行资本与拨备监管指标.xlsx', text);
     addLog(taskId, '数据处理：导出参试银行资本与拨备监管指标');
     toast('资本与拨备监管指标已导出');
   }
@@ -3892,7 +4135,7 @@
     syncBankBasicInfoFromRecords(taskId);
     if (!t?.bankBasicInfo?.rows?.length) { toast('暂无可导出基础信息', 'info'); return; }
     const text = buildBankBasicInfoExportText(taskId);
-    triggerExportFileDownload(`参试银行基础信息表_${t.taskName || taskId}.txt`, text);
+    triggerExportFileDownload('参试银行基础信息表.xlsx', text);
     addLog(taskId, '数据处理：导出参试银行基础信息表');
     toast('基础信息表已导出');
   }
@@ -4241,23 +4484,24 @@
 
   const MENU_TREE = [
     { page: 'data-process', label: '数据处理' },
-    { page: 'scenario-analysis', label: '情景分析' },
     {
-      key: 'fin-trans',
-      label: '财务传导',
+      key: 'item-calculation',
+      label: '分项计算',
       children: [
-        { page: 'stress-fin-trans', label: '逐户判定' },
-        { page: 'stress-npl-prov', label: '不良和拨备计算' },
+        { page: 'scenario-analysis', label: '情景及特殊客户导入' },
+        { page: 'stress-fin-trans', label: '财务传导及逐户判定' },
         { page: 'stress-pd-lgd', label: 'PD/LGD计算' },
+        { page: 'stress-npl-prov', label: '不良和拨备计算' },
       ],
     },
     { page: 'results', label: '压测结果分析' },
     { page: 'exports', label: '导出记录' },
+    { page: 'risk-warning', label: '风险预警' },
     {
       key: 'config',
       label: '基础配置',
       children: [
-        { page: 'factors', label: '因子库管理' },
+        { page: 'factors', label: '高碳行业因子库' },
         { page: 'mappings', label: '行业映射关系' },
         { page: 'airport-throughput', label: '机场吞吐量维护' },
       ],
@@ -4325,12 +4569,15 @@
 
   const PAGE_SECTION = {
     'data-process': 'data-process',
-    'scenario-analysis': 'scenario-analysis',
-    'stress-fin-trans': 'fin-trans',
-    'stress-pd-lgd': 'fin-trans',
-    'stress-npl-prov': 'fin-trans',
+    'scenario-analysis': 'item-calculation',
+    'stress-fin-trans': 'item-calculation',
+    'stress-pd-lgd': 'item-calculation',
+    'stress-npl-prov': 'item-calculation',
+    'stress-item-results': 'item-calculation',
+    'stress-summary': 'item-calculation',
     results: 'results',
     exports: 'exports',
+    'risk-warning': 'risk-warning',
     'task-detail': 'data-process',
     factors: 'config', mappings: 'config',
     'airport-throughput': 'config',
@@ -4535,18 +4782,20 @@
   function renderTasks() {
     const filtered = filterTaskList();
     const table = renderPagedTable('tasks', filtered,
-      '<tr><th>任务名称</th><th>财报年份</th><th>贷款类型</th><th>贷款地区</th><th>更新人</th><th>更新时间</th><th>操作</th></tr>',
+      '<tr><th>任务名称</th><th>财报年份</th><th>基准年度</th><th>贷款类型</th><th>贷款地区</th><th>更新人</th><th>更新时间</th><th>操作</th></tr>',
       (t) => `<tr>
         <td>${esc(t.taskName)}</td>
-        <td>${t.reportYear || '-'}</td>
+        <td>${getTaskReportYear(t)}</td>
+        <td>${getTaskBaselineYear(t)}</td>
         <td>${t.loanType === 'CORPORATE' ? '对公（含普惠）' : t.loanType === 'PERSONAL_BUSINESS' ? '个人经营性贷款' : t.loanType === 'PERSONAL' ? '个人贷款' : '-'}</td>
         <td>${LOAN_REGION_LABELS[t.loanRegion] || '-'}</td>
         <td>${esc(getTaskUpdatedBy(t))}</td>
         <td>${esc(t.updatedAt || t.createdAt || '-')}</td>
         <td><div class="action-group">${taskActions(t)}</div></td>
-      </tr>`, 7);
+      </tr>`, 8);
 
     const yearFilterOpts = buildTaskReportYearFilterOptions(taskFilters.reportYear);
+    const baselineYearFilterOpts = buildTaskBaselineYearFilterOptions(taskFilters.baselineYear);
     const loanTypeFilterOpts = [
       '<option value="">全部</option>',
       `<option value="CORPORATE" ${taskFilters.loanType === 'CORPORATE' ? 'selected' : ''}>对公（含普惠）</option>`,
@@ -4574,6 +4823,10 @@
           <div class="filter-item">
             <label>财报年份</label>
             <select class="select" id="tf_report_year">${yearFilterOpts}</select>
+          </div>
+          <div class="filter-item">
+            <label>基准年度</label>
+            <select class="select" id="tf_baseline_year">${baselineYearFilterOpts}</select>
           </div>
           <div class="filter-item">
             <label>贷款类型</label>
@@ -4607,6 +4860,11 @@
     const yearOpts = Array.from({ length: 74 }, (_, i) => {
       const y = 2026 + i;
       return `<option value="${y}" ${(Number(t?.reportYear) || 2026) === y ? 'selected' : ''}>${y}</option>`;
+    }).join('');
+    const baselineYearValue = Number(t?.baselineYear) || ((Number(t?.reportYear) || 2026) - 1);
+    const baselineYearOpts = Array.from({ length: 80 }, (_, i) => {
+      const y = 2020 + i;
+      return `<option value="${y}" ${baselineYearValue === y ? 'selected' : ''}>${y}</option>`;
     }).join('');
     const loanTypeOpts = [
       `<option value="CORPORATE" ${(!t?.loanType || t?.loanType === 'CORPORATE') ? 'selected' : ''}>对公（含普惠）</option>`,
@@ -4643,13 +4901,19 @@
           <input class="input" value="${esc(String(getTaskReportYear(t)))}" disabled />
         </div>
         <div class="form-row">
+          <label>基准年度</label>
+          <input class="input" value="${esc(String(getTaskBaselineYear(t)))}" disabled />
+        </div>
+      </div>
+      <div class="form-grid-2">
+        <div class="form-row">
           <label>贷款类型</label>
           <input class="input" value="${esc(t?.loanType === 'PERSONAL_BUSINESS' ? '个人经营性贷款' : t?.loanType === 'PERSONAL' ? '个人贷款' : '对公（含普惠）')}" disabled />
         </div>
-      </div>
-      <div class="form-row">
-        <label>贷款地区</label>
-        <input class="input" value="${esc(LOAN_REGION_LABELS[t?.loanRegion] || '境内（含香港）')}" disabled />
+        <div class="form-row">
+          <label>贷款地区</label>
+          <input class="input" value="${esc(LOAN_REGION_LABELS[t?.loanRegion] || '境内（含香港）')}" disabled />
+        </div>
       </div>`
       : `
       <div class="form-grid-2">
@@ -4658,13 +4922,19 @@
           <select class="select" id="d_reportYear" ${roOther}>${yearOpts}</select>
         </div>
         <div class="form-row">
+          <label>${req}基准年度</label>
+          <select class="select" id="d_baselineYear" ${roOther}>${baselineYearOpts}</select>
+        </div>
+      </div>
+      <div class="form-grid-2">
+        <div class="form-row">
           <label>${req}贷款类型</label>
           <select class="select" id="d_loanType" ${roOther}>${loanTypeOpts}</select>
         </div>
-      </div>
-      <div class="form-row">
-        <label>${req}贷款地区</label>
-        <select class="select" id="d_loanRegion" ${roOther}>${loanRegionOpts}</select>
+        <div class="form-row">
+          <label>${req}贷款地区</label>
+          <select class="select" id="d_loanRegion" ${roOther}>${loanRegionOpts}</select>
+        </div>
       </div>`;
     return `
       <div class="form-row">
@@ -4675,7 +4945,7 @@
       <div class="form-row">
         <label>高碳行业分类</label>
         <select class="select" id="d_highCarbonFlag" ${roOther}>
-          <option value="AUTO" ${(!t?.highCarbonFlag || t?.highCarbonFlag === 'AUTO') ? 'selected' : ''}>按行业映射自动识别（不作为样本筛选条件）</option>
+          <option value="AUTO" ${(!t?.highCarbonFlag || t?.highCarbonFlag === 'AUTO') ? 'selected' : ''}>按行业映射关系自动识别（不作为样本筛选条件）</option>
           <option value="YES" ${t?.highCarbonFlag === 'YES' ? 'selected' : ''}>高碳行业</option>
           <option value="NO" ${t?.highCarbonFlag === 'NO' ? 'selected' : ''}>非高碳行业</option>
         </select>
@@ -4986,6 +5256,21 @@
     return { checks, commonParamHtml, scenarioCardHtml: '', selectedCodes, stressEditable };
   }
 
+  function renderSpecialCustomerImportSection(t, entityId, editable) {
+    const confirmed = !!(t.specialCustomerImportConfirmed || t.status === 'COMPLETED');
+    const count = (stressRecordsByJob[entityId] || entityRecords(entityId, t)).filter((r) => r.specialCustomer).length;
+    const disabled = !editable || !isStressScenarioParamsSaved(t);
+    return `
+      <section class="result-section" style="margin-top:16px">
+        <div class="result-section-hd">
+          <h4 class="result-section-title">特殊客户导入</h4>
+          <span class="tag ${confirmed ? 'tag-success' : 'tag-warning'}">${confirmed ? `已确认 ${count} 户` : '待导入或确认'}</span>
+        </div>
+        <p class="stress-step-hint">在财务传导前导入特殊客户清单。PD内评t0=100%、PDECLt0=100%、基期五级分类为次级/可疑/损失及其他特殊客户，测试期内不再重新判定违约，五级分类、PD、LGD和拨备金额保持基期值。</p>
+        ${editable ? `<button type="button" class="btn btn-default" onclick="CRST_APP.openSpecialCustomerImportModal(${entityId})" ${disabled ? 'disabled' : ''}>${confirmed ? '重新导入特殊客户清单' : '导入特殊客户清单'}</button>` : ''}
+      </section>`;
+  }
+
   function renderStressJobDataBanner(t) {
     return `
       <div class="desc-grid stress-data-banner" style="margin-bottom:16px">
@@ -5002,13 +5287,16 @@
     const refDataSection = t.dataSource === 'REF' && t.sourceTaskId
       ? renderReferencedDataProcessTables(t, recs)
       : '';
+    const importedDataSection = t.dataSource === 'IMPORT'
+      ? `<div class="table-wrap"><table><thead><tr><th>基础表</th><th>来源</th><th>状态</th></tr></thead><tbody>${STRESS_IMPORT_FILE_SPECS.map((spec) => `<tr><td>${esc(spec.label)}</td><td>${esc(t.importFiles?.[spec.key] || spec.fileName)}</td><td><span class="tag tag-success">已导入</span></td></tr>`).join('')}</tbody></table></div>`
+      : '';
 
     if (step === 0) {
       return `
         ${dataBanner}
-        <h3 class="step-panel-title">数据处理（引用）</h3>
-        <p class="stress-step-hint">本步展示引用的数据处理任务产出。如需修改基础数据，请返回「数据处理」模块。</p>
-        ${refDataSection || '<div class="empty">暂无引用数据</div>'}
+        <h3 class="step-panel-title">基础数据</h3>
+        <p class="stress-step-hint">基础数据可以引用数据处理任务生成结果，也可以直接导入；两种方式使用同一套五张基础表。</p>
+        ${refDataSection || importedDataSection || '<div class="empty">暂无基础数据</div>'}
         <div class="step-footer">
           <button type="button" class="btn btn-primary btn-next-step" onclick="CRST_APP.setStressJobStep(1)">下一步：财务传导</button>
         </div>`;
@@ -5016,6 +5304,7 @@
 
     if (step === 1) {
       const finDone = isFinTransDone(t);
+      const specialReady = !!(t.specialCustomerImportConfirmed || t.status === 'COMPLETED');
       if (isScenarioAnalysisPage()) {
         const paramsLocked = isStressScenarioParamsSaved(t) && !taskEditMode;
         const canEditScenarioConfig = canEditScenarioAnalysisConfig(t);
@@ -5030,7 +5319,7 @@
         const canRunPipeline = canEditScenarioConfig;
         return `
         <div class="stress-scenario-config-section">
-          <h4 class="step-subtitle step-panel-title-divider">压测情景</h4>
+          <h4 class="step-subtitle step-panel-title-divider">第一步 情景导入</h4>
           <div class="stress-scenario-check-row">
             <div class="checkbox-group scenario-checkbox-group${scenarioChecksLocked ? ' scenario-checkbox-group--locked' : ''}">${checks || '<span class="scenario-check-empty">无已生效压测情景，请联系管理员配置。</span>'}</div>
             ${canEditScenarioConfig ? `<button type="button" class="btn btn-default stress-scenario-import-btn" onclick="CRST_APP.openScenarioParamsImportModal(${entityId})">导入情景参数</button>` : ''}
@@ -5044,9 +5333,10 @@
                 <button type="button" class="btn btn-primary" onclick="CRST_APP.saveScenarioStressParams(${entityId})">保存</button>
                 <button type="button" class="btn btn-default" onclick="CRST_APP.cancelScenarioStressParams(${entityId})">取消</button>
               </div>`}
-            <span class="stress-params-save-hint ${paramsLocked ? 'is-saved' : 'is-pending'}">${paramsLocked ? '已保存，可执行下方计算步骤' : '请先保存压测情景与公共参数'}</span>
+            <span class="stress-params-save-hint ${paramsLocked ? 'is-saved' : 'is-pending'}">${paramsLocked ? '情景参数已保存，共形成“3类情景 × 2种CCUS状态”6个组合' : '请先导入并保存情景参数'}</span>
           </div>` : (paramsLocked ? '<p class="stress-params-save-hint is-saved">压测情景与公共参数已保存</p>' : '')}
         </div>
+        ${renderSpecialCustomerImportSection(t, entityId, canRunPipeline)}
         ${renderStressPipelinePanel(entityId, t, canRunPipeline)}
         ${scenarioCardHtml || ''}
         ${pipelineAllDone ? `
@@ -5066,9 +5356,11 @@
         ${scenarioCardHtml || ''}
         ${stressEditable ? `<div class="toolbar step-panel-actions" style="margin-top:12px">
           ${stressEditOnly ? '<button class="btn btn-default" onclick="CRST_APP.cancelEditTask()">取消编辑</button>' : ''}
-          <button class="btn btn-primary" onclick="CRST_APP.runFinTrans(${entityId})">${finDone ? '重新执行财务传导' : '执行财务传导'}</button>
+          <button class="btn btn-primary" onclick="CRST_APP.runFinTrans(${entityId})" ${specialReady ? '' : 'disabled'}>${finDone ? '重新执行财务传导' : '执行财务传导'}</button>
         </div>` : ''}
+        ${specialReady ? '' : '<p class="stress-params-save-hint is-pending">请先在“情景及特殊客户导入”完成特殊客户清单确认。</p>'}
         ${finDone ? `
+        ${renderTestPeriodFinancialTable(t)}
         <section class="result-section fin-trans-output-section" style="margin-top:20px">
           ${renderDefaultAdjustmentDetailTable(null, [], {
             rows: buildFinTransDefaultAdjustmentRows(t),
@@ -5086,8 +5378,6 @@
         return `${dataBanner}<div class="empty">请先完成「财务传导」步骤</div>
           <div class="step-footer"><button type="button" class="btn btn-default" onclick="CRST_APP.setStressJobStep(1)">返回财务传导</button></div>`;
       }
-      if (!t.creditFetched) fetchCredit(entityId, { silent: true });
-      if (!t.eclFetched) fetchEcl(entityId, { silent: true });
       const pdDone = t.creditFetched && t.eclFetched;
       const pdLgdState = pdDone ? {
         sources: [],
@@ -5141,18 +5431,15 @@
       return `
         ${dataBanner}
         <h3 class="step-panel-title">不良和拨备计算</h3>
-        <p class="stress-step-hint">依据财务传导后的资产负债率识别违约客户并计入不良；按人民银行《压力测试结果汇总表》模板，分行业汇总不良贷款余额与当年新提取的贷款损失准备。</p>
+        <p class="stress-step-hint">特殊客户及无财报客户保持基期分类；高碳且非特殊客户首次触发违约规则时计入不良。同一客户存在不同投向时取最早违约年份。非特殊客户拨备按“基期业务余额 × PDt × LGDt”计算，特殊客户拨备保持基期值。</p>
         ${canEditStressSection(t, 3) ? `<div class="toolbar step-panel-actions" style="margin-top:12px">
           ${stressEditOnly ? '<button class="btn btn-default" onclick="CRST_APP.cancelEditTask()">取消编辑</button>' : ''}
-          <button class="btn btn-primary" onclick="CRST_APP.runStress(${entityId})">${runBtnLabel}</button>
+          <button class="btn btn-primary" onclick="CRST_APP.runStressPipelineStep(${entityId}, 'nplProv')">${t.nplProvDone ? '重新执行不良与拨备计算' : '执行不良与拨备计算'}</button>
         </div>` : ''}
         ${previewSummary}
-        <section class="result-section" style="margin-top:16px">
-          <div class="result-section-hd"><h4 class="result-section-title">压力测试结果汇总表</h4></div>
-          ${summaryTables || '<div class="empty" style="padding:16px 0">尚未生成不良/拨备结果，请执行本步计算。</div>'}
-        </section>
-        ${t.status === 'COMPLETED' && !stressEditOnly ? `<div class="step-footer">
-          <button type="button" class="btn btn-primary" onclick="CRST_APP.viewStressResults(${entityId})">查看压测结果分析</button>
+        ${t.nplProvDone && !stressEditOnly ? `<div class="step-footer">
+          <button type="button" class="btn btn-primary" onclick="CRST_APP.runStressPipelineStep(${entityId}, 'results')">生成客户及行业分项结果与汇总表</button>
+          ${t.status === 'COMPLETED' ? `<button type="button" class="btn btn-default" onclick="CRST_APP.viewStressResults(${entityId})">查看结果</button>` : ''}
           ${isStressJobEntity(t) ? `<button type="button" class="btn btn-default" onclick="CRST_APP.editStressJob(${entityId})">编辑并重新压测</button>` : ''}
         </div>` : ''}`;
     }
@@ -5210,7 +5497,7 @@
           ${renderTaskFormFields(t, { readonly: true })}`;
       }
     } else if (activeStep === 1) {
-      panel = `${stressEditHint}<h3 class="step-panel-title">${isDataProcessModule() ? '财务数据处理' : '数据同步与确认'}</h3>`;
+      panel = `${stressEditHint}<h3 class="step-panel-title">${isDataProcessModule() ? '财务数据' : '数据同步与确认'}</h3>`;
       const viewOnly = taskViewMode && !taskEditMode;
       const syncDisabled = !['DRAFT', 'SYNCING', 'PENDING_DISAMBIG', 'PROCESSING'].includes(t.status) || readonly || viewOnly;
       const pendingDisambig = t.status === 'PENDING_DISAMBIG' && !readonly && !viewOnly;
@@ -5220,6 +5507,7 @@
       const allUsable = allDataProcessRecordsUsable(recs);
 
       ensureTaskRecordsEnriched(entityId, t);
+      recs.forEach((r, i) => ensureFinancialRecordMeta(r, i, t));
       const { basicYear, financialYear } = getTaskDataYears(t);
       const syncStatusFilter = syncListFilters[t.id] || '';
       const filteredRecs = taskViewMode ? recs : filterSyncRecords(recs, t.id);
@@ -5239,7 +5527,7 @@
         if (customerBasicDisplayStatusKey(r) === 'MISSING_AIRPORT') return 'row-warning';
         return '';
       };
-      const customerBasicSection = renderCustomerBasicInfoSection(t, recs.length ? filteredRecs : [], {
+      const customerBasicSection = hasGeneratedBaseTable(t, 0) ? renderCustomerBasicInfoSection(t, recs.length ? filteredRecs : [], {
         showOpCol: showSyncOpCol,
         showInternalCol: showInternalSummaryCol,
         regulatoryView: t.status === 'COMPLETED' || t.status === 'ARCHIVED',
@@ -5247,7 +5535,16 @@
         showToolbar: recs.length > 0,
         emptyText: t.loanDataSynced ? (t.gelanDataSynced ? '请先同步财务数据' : '请先同步格澜数据') : '请先同步贷款数据',
         viewOnly,
-      });
+      }) : '';
+      const customerFinancialSection = hasGeneratedBaseTable(t, 1) ? renderFinancialDataSection(t, filteredRecs, {
+        generated: true,
+        readonly: viewOnly,
+        title: '参试客户基期财务数据表',
+        hint: '由贷款数据、内部评级数据、预期信用损失数据、财务数据和格澜数据拼接生成；年报优先、合并报表优先、已审计优先。',
+      }) : '';
+      const bankBasicSection = hasGeneratedBaseTable(t, 2) ? `${renderBankBasicInfoTable(t)}${renderBankCapitalMetricsSection(t)}` : '';
+      const highCarbonSection = hasGeneratedBaseTable(t, 3) ? renderHighCarbonCustomerTable(t, filteredRecs, viewOnly) : '';
+      const industryLoanSection = hasGeneratedBaseTable(t, 4) ? renderIndustryLoanTable(t, filteredRecs, viewOnly) : '';
       const totalCount = t.syncStats?.total ?? recs.length;
       const syncSummaryText = `同步条数：${totalCount}条`;
 
@@ -5260,33 +5557,43 @@
       } else if (!taskViewMode && t.status === 'COMPLETED' && t.bankBasicInfo) {
         stepFooter = `
           <div class="step-footer step-footer-hint">
-            <span class="step-footer-msg">数据处理已完成，已生成客户基础信息与参试银行基础信息表。可在压测方法模块引用本任务数据。</span>
+            <span class="step-footer-msg">数据处理已完成，已按顺序生成五张基础表，可在分项计算中引用本任务数据。</span>
           </div>`;
       }
 
       panel += `
         <p class="sync-summary-text">${syncSummaryText}</p>
-        <div class="toolbar step-toolbar-top sync-action-toolbar">
+        <div class="toolbar step-toolbar-top sync-action-toolbar sync-action-toolbar--ten">
           <div class="sync-action-item">
             <span class="sync-action-index" aria-hidden="true">1</span>
             <button type="button" class="btn btn-primary" ${canEnableDataSyncStep(t, 1, t.id, syncDisabled) ? '' : 'disabled'} onclick="CRST_APP.syncLoanData(${t.id})">同步贷款数据</button>
           </div>
-          <div class="sync-action-item"><span class="sync-action-index" aria-hidden="true">2</span><button type="button" class="btn btn-primary" ${canEnableDataSyncStep(t, 2, t.id, syncDisabled) ? '' : 'disabled'} onclick="CRST_APP.syncInternalRatingData(${t.id})">同步内部评级</button></div>
+          <div class="sync-action-item"><span class="sync-action-index" aria-hidden="true">2</span><button type="button" class="btn btn-primary" ${canEnableDataSyncStep(t, 2, t.id, syncDisabled) ? '' : 'disabled'} onclick="CRST_APP.syncInternalRatingData(${t.id})">同步内部评级数据</button></div>
           <div class="sync-action-item"><span class="sync-action-index" aria-hidden="true">3</span><button type="button" class="btn btn-primary" ${canEnableDataSyncStep(t, 3, t.id, syncDisabled) ? '' : 'disabled'} onclick="CRST_APP.syncFinancial(${t.id})">同步财务数据</button></div>
-          <div class="sync-action-item"><span class="sync-action-index" aria-hidden="true">4</span><button type="button" class="btn btn-primary" ${canEnableDataSyncStep(t, 4, t.id, syncDisabled) ? '' : 'disabled'} onclick="CRST_APP.syncEclData(${t.id})">同步预期信用损失</button></div>
+          <div class="sync-action-item"><span class="sync-action-index" aria-hidden="true">4</span><button type="button" class="btn btn-primary" ${canEnableDataSyncStep(t, 4, t.id, syncDisabled) ? '' : 'disabled'} onclick="CRST_APP.syncEclData(${t.id})">同步预期信用损失数据</button></div>
           <div class="sync-action-item"><span class="sync-action-index" aria-hidden="true">5</span><button type="button" class="btn btn-primary" ${canEnableDataSyncStep(t, 5, t.id, syncDisabled) ? '' : 'disabled'} onclick="CRST_APP.syncGelanData(${t.id})">同步格澜数据</button></div>
-          <div class="sync-action-item"><span class="sync-action-index" aria-hidden="true">6</span><button type="button" class="btn btn-default" ${canEnableDataSyncStep(t, 6, t.id, syncDisabled) ? '' : 'disabled'} onclick="CRST_APP.generateBaseTables(${t.id})">生成五张基础表</button></div>
+          <div class="sync-action-item"><span class="sync-action-index" aria-hidden="true">6</span><button type="button" class="btn btn-default" ${canEnableDataSyncStep(t, 6, t.id, syncDisabled) ? '' : 'disabled'} onclick="CRST_APP.generateBaseTable(${t.id}, 'customerBasic')">生成参试客户基础信息表</button></div>
+          <div class="sync-action-item"><span class="sync-action-index" aria-hidden="true">7</span><button type="button" class="btn btn-default" ${canEnableDataSyncStep(t, 7, t.id, syncDisabled) ? '' : 'disabled'} onclick="CRST_APP.generateBaseTable(${t.id}, 'customerFinancial')">生成参试客户基期财务数据表</button></div>
+          <div class="sync-action-item"><span class="sync-action-index" aria-hidden="true">8</span><button type="button" class="btn btn-default" ${canEnableDataSyncStep(t, 8, t.id, syncDisabled) ? '' : 'disabled'} onclick="CRST_APP.generateBaseTable(${t.id}, 'bankBasic')">生成参试银行基础信息表</button></div>
+          <div class="sync-action-item"><span class="sync-action-index" aria-hidden="true">9</span><button type="button" class="btn btn-default" ${canEnableDataSyncStep(t, 9, t.id, syncDisabled) ? '' : 'disabled'} onclick="CRST_APP.generateBaseTable(${t.id}, 'highCarbonCustomer')">生成高碳行业客户基础信息表</button></div>
+          <div class="sync-action-item"><span class="sync-action-index" aria-hidden="true">10</span><button type="button" class="btn btn-default" ${canEnableDataSyncStep(t, 10, t.id, syncDisabled) ? '' : 'disabled'} onclick="CRST_APP.generateBaseTable(${t.id}, 'industryLoan')">生成分行业贷款信息表</button></div>
         </div>
-        <div class="v11-rule-note">顺序控制：贷款数据 → 内部评级 → 财务数据 → 预期信用损失 → 格澜数据 → 生成参试客户基础信息、参试客户基期财务、参试银行基础信息、高碳客户基础信息、分行业贷款基础信息五张表。外部接口状态：待联调。</div>
+        <div class="v11-rule-note">处理顺序：贷款数据 → 内部评级数据 → 财务数据 → 预期信用损失数据 → 格澜数据 → 参试客户基础信息表 → 参试客户基期财务数据表 → 参试银行基础信息表 → 高碳行业客户基础信息表 → 分行业贷款信息表。</div>
         ${renderSyncFilterPanel(t, viewOnly || !!t.baseTablesGenerated)}
         <div class="sync-list-filter">
           <label class="sync-list-filter-label" for="sync_status_${t.id}">状态</label>
           <select class="select sync-status-select" id="sync_status_${t.id}" ${viewOnly ? 'disabled' : ''} onchange="CRST_APP.setSyncStatusFilter(${t.id}, this.value)">${statusFilterOpts}</select>
         </div>
+        ${renderLoanDataSection(t, filteredRecs)}
+        ${renderInternalRatingDataSection(t, filteredRecs)}
+        ${renderFinancialDataSection(t, filteredRecs)}
+        ${renderEclDataSection(t, filteredRecs)}
+        ${renderGelanDataSection(t, filteredRecs)}
         ${customerBasicSection}
-        ${renderInternalPdSection(t, recs)}
-        ${renderBankBasicInfoTable(t)}
-        ${renderBankCapitalMetricsSection(t)}
+        ${customerFinancialSection}
+        ${bankBasicSection}
+        ${highCarbonSection}
+        ${industryLoanSection}
         ${stepFooter}`;
     } else if (activeStep === 2) {
       const processRow = (a) => `<tr>
@@ -6055,7 +6362,7 @@
     return `
       <div class="default-adjustment-table-wrap">
         <div class="stress-summary-table-head">
-          <h3 class="stress-summary-table-title">违约调整明细表</h3>
+          <h3 class="stress-summary-table-title">华夏银行违约调整明细表（外报）</h3>
           <div class="stress-summary-table-actions">
             ${opts.showExport ? `<button type="button" class="btn btn-default btn-sm" onclick="${exportHandler}">导出数据</button>` : ''}
           </div>
@@ -6092,6 +6399,7 @@
     <th class="num">基期不良贷款率</th>
     <th class="num">新增违约客户数</th>
     <th class="num">新增违约贷款金额（万元）</th>
+    <th class="num">减值准备金额（万元）</th>
     <th class="num">不良贷款余额（万元）</th>
     <th class="num">不良贷款率</th>
     <th class="num">不良贷款生成率</th>`;
@@ -6101,6 +6409,7 @@
     '基期不良贷款率',
     '新增违约客户数',
     '新增违约贷款金额（万元）',
+    '减值准备金额（万元）',
     '不良贷款余额（万元）',
     '不良贷款率',
     '不良贷款生成率',
@@ -6126,6 +6435,7 @@
       formatAnalysisPct(m.baselineNplRatio),
       formatAnalysisCount(m.newDefaultCount),
       formatAnalysisAmt(m.newDefaultLoan),
+      formatAnalysisAmt(m.impairmentProvision),
       formatAnalysisAmt(m.nplBalance),
       formatAnalysisPct(m.nplRatio),
       formatAnalysisPct(m.nplGenerationRate),
@@ -6202,7 +6512,7 @@
         toast('当前表格暂无数据', 'info');
         return;
       }
-      const downloadFileName = buildExportTitleFileName(meta.title);
+      const downloadFileName = '客户及行业压力测试分项结果.xlsx';
       appendExportLog({
         sourceKey,
         scope: meta.title,
@@ -6304,6 +6614,11 @@
         isHighCarbon: hc.isHighCarbon,
         highCarbonMajor: hc.major,
         highCarbonSub: hc.sub,
+        provisionAmount: rec.provisionAmount ?? 0,
+        hasFinancialData: !rec.reportMissing && (rec.totalAssets != null || rec.operatingRevenue != null || rec.revenue != null),
+        totalAssets: rec.totalAssets,
+        totalLiabilities: rec.totalLiabilities,
+        assetLiabilityRatio: rec.assetLiabilityRatio,
       };
     });
   }
@@ -6349,12 +6664,14 @@
     }, 0);
     const nplRatio = baselineLoan > 0 ? nplBalance / baselineLoan : 0;
     const nplGenerationRate = startNormalAttentionLoan > 0 ? (nplBalance - baselineNpl) / startNormalAttentionLoan : 0;
+    const impairmentProvision = customers.reduce((s, c) => s + (Number(c.provisionAmount) || 0), 0);
     return {
       baselineCustomers,
       baselineLoan,
       baselineNplRatio,
       newDefaultCount,
       newDefaultLoan,
+      impairmentProvision,
       nplBalance,
       nplRatio,
       nplGenerationRate,
@@ -6368,6 +6685,7 @@
       <td class="num">${formatAnalysisPct(m.baselineNplRatio)}</td>
       <td class="num">${formatAnalysisCount(m.newDefaultCount)}</td>
       <td class="num">${formatAnalysisAmt(m.newDefaultLoan)}</td>
+      <td class="num">${formatAnalysisAmt(m.impairmentProvision)}</td>
       <td class="num">${formatAnalysisAmt(m.nplBalance)}</td>
       <td class="num">${formatAnalysisPct(m.nplRatio)}</td>
       <td class="num">${formatAnalysisPct(m.nplGenerationRate)}</td>`;
@@ -6444,6 +6762,11 @@
 
   function buildAnalysisTopDefaultCustomers(portfolio, results, opts, limit, highCarbon) {
     const defaultYearMap = buildCompanyDefaultYearMap(results, opts.scenarioCode);
+    const defaultResultMap = new Map();
+    (results || []).filter((r) => (!opts.scenarioCode || r.scenarioCode === opts.scenarioCode) && r.defaultFlag).forEach((r) => {
+      const prev = defaultResultMap.get(r.companyName);
+      if (!prev || (r.testYear || 9999) < (prev.testYear || 9999)) defaultResultMap.set(r.companyName, r);
+    });
     return portfolio
       .filter((c) => c.isHighCarbon === highCarbon)
       .filter((c) => {
@@ -6456,6 +6779,7 @@
         industry: c.isHighCarbon ? (c.highCarbonSub || c.standardIndustry) : c.standardIndustry,
         region: c.region || c.branchName,
         defaultYear: defaultYearMap.get(c.companyName),
+        defaultReason: defaultReasonText(defaultResultMap.get(c.companyName) || {}),
       }))
       .sort((a, b) => (b.loanBalance || 0) - (a.loanBalance || 0))
       .slice(0, limit);
@@ -6545,6 +6869,57 @@
       </div>`;
   }
 
+  function computeDefaultAdjustmentMetrics(customers, results, opts = {}) {
+    const tested = customers.filter((c) => c.hasFinancialData);
+    const defaultYearMap = buildCompanyDefaultYearMap(results, opts.scenarioCode || '');
+    const eligible = tested.filter((c) => ANALYSIS_NORMAL_ATT_CLASSES.has(c.prevStatus || c.loanClassification || 'NORMAL'));
+    const defaults = eligible.filter((c) => defaultYearMap.has(c.companyName));
+    const testedLoan = tested.reduce((s,c) => s + (Number(c.loanBalance)||0), 0);
+    const defaultLoan = defaults.reduce((s,c) => s + (Number(c.loanBalance)||0), 0);
+    return { testedCount: tested.length, testedLoan, defaultCount: defaults.length, defaultLoan, adjustmentRatio: testedLoan > 0 ? defaultLoan / testedLoan : 0 };
+  }
+
+  function renderSimpleAnalysisTable(title, exportId, headers, rows) {
+    registerAnalysisTableExport(exportId, title, headers, rows);
+    const body = rows.map((row) => `<tr>${row.map((cell,i) => `<td${i > 0 ? ' class="num"' : ''}>${esc(String(cell ?? ''))}</td>`).join('')}</tr>`).join('');
+    return `<div class="analysis-panel analysis-panel--metric-table"><div class="analysis-panel-hd"><h3 class="analysis-panel-title">${esc(title)}</h3>${renderAnalysisExportActions(exportId,'table')}</div><div class="table-wrap analysis-metric-table-scroll"><table><thead><tr>${headers.map((h) => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${body || `<tr><td colspan="${headers.length}" class="empty">暂无数据</td></tr>`}</tbody></table></div></div>`;
+  }
+
+  function buildDefaultAdjustmentRows(groups, results, opts, labelKey) {
+    return groups.map((g) => {
+      const m = computeDefaultAdjustmentMetrics(g.customers, results, opts);
+      return [g[labelKey], formatAnalysisCount(m.testedCount), formatAnalysisAmt(m.testedLoan), formatAnalysisCount(m.defaultCount), formatAnalysisAmt(m.defaultLoan), formatAnalysisPct(m.adjustmentRatio)];
+    });
+  }
+
+  function analysisTimelineYears(results) {
+    const years = [...new Set((results || []).map((r) => r.testYear).filter(Boolean))].sort((a,b) => a-b);
+    return years.length ? [years[0]-1, ...years] : [];
+  }
+
+  function buildIndustryTrendTable(groups, allCustomers, results, opts, metricKey, totalLabel) {
+    const years = analysisTimelineYears(results);
+    const rowFor = (name, customers) => {
+      const base = computeAnalysisGroupMetrics(customers, results, opts);
+      return [name, (base.baselineLoan / 10000).toFixed(2), ...years.map((year,i) => i === 0 ? (metricKey === 'nplGenerationRate' ? '' : formatAnalysisPct(base.baselineNplRatio)) : formatAnalysisPct(computeAnalysisGroupMetrics(customers, results, {...opts, analysisYear: year})[metricKey]))];
+    };
+    return { years, rows: [...groups.map((g) => rowFor(g.name, g.customers)), rowFor(totalLabel, allCustomers)] };
+  }
+
+  function buildHighCarbonScenarioComparison(portfolio, results) {
+    const groups = ANALYSIS_HIGH_CARBON_MAJORS.map((name) => ({ name, customers: portfolio.filter((c) => c.isHighCarbon && c.highCarbonMajor === name) }));
+    const rowFor = (name, customers) => {
+      const base = computeAnalysisGroupMetrics(customers, results, {});
+      const values = STRESS_SCENARIO_OPTIONS.flatMap((scenario) => {
+        const m = computeAnalysisGroupMetrics(customers, results, { scenarioCode: scenario.code });
+        return [formatAnalysisPct(m.nplRatio), formatAnalysisPct(m.nplRatio)];
+      });
+      return [name, (base.baselineLoan / 10000).toFixed(2), formatAnalysisPct(base.baselineNplRatio), ...values];
+    };
+    const all = portfolio.filter((c) => c.isHighCarbon);
+    return [...groups.map((g) => rowFor(g.name,g.customers)), rowFor('高碳行业小计',all)];
+  }
+
   function buildResultsAnalysisContent(portfolio, results, opts) {
     clearAnalysisExportRegistry();
     const nonHcIndustries = buildAnalysisNonHighCarbonIndustries(portfolio);
@@ -6564,11 +6939,27 @@
     const table4Rows = buildAnalysisHighCarbonRegionRows(portfolio, results, opts);
     const table5Rows = buildAnalysisTopDefaultCustomers(portfolio, results, opts, 10, true);
     const table6Rows = buildAnalysisTopDefaultCustomers(portfolio, results, opts, 10, false);
+    const highCarbonIndustryGroups = table1Rows.map((r) => ({
+      name: `${r.major}${r.sub && r.sub !== r.major ? `-${r.sub}` : ''}`,
+      customers: portfolio.filter((c) => c.isHighCarbon && c.highCarbonMajor === r.major && c.highCarbonSub === r.sub),
+    }));
+    const highCarbonRegionGroups = [...new Set(portfolio.filter((c) => c.isHighCarbon).map((c) => c.region || c.branchName || '未分类'))].map((name) => ({ name, customers: portfolio.filter((c) => c.isHighCarbon && (c.region || c.branchName || '未分类') === name) }));
 
     const chart1Series = buildAnalysisMajorTrendSeries(portfolio, results, ANALYSIS_HIGH_CARBON_MAJORS, 'nplRatio', opts);
     const chart2Series = buildAnalysisMajorTrendSeries(portfolio, results, ANALYSIS_HIGH_CARBON_MAJORS, 'nplGenerationRate', opts);
     const chart3Series = buildAnalysisIndustryTrendSeries(top5Loan, results, 'nplRatio', opts);
     const chart4Series = buildAnalysisIndustryTrendSeries(top5Loan, results, 'nplGenerationRate', opts);
+    const adjustmentHeaders = ['分类','有财务数据客户数','有财务数据客户贷款余额（万元）','预测期间新增违约客户数','预测期间新增违约贷款余额（万元）','违约调整比例'];
+    const industryAdjustmentRows = buildDefaultAdjustmentRows(highCarbonIndustryGroups, results, opts, 'name');
+    const regionAdjustmentRows = buildDefaultAdjustmentRows(highCarbonRegionGroups, results, opts, 'name').sort((a,b) => Number(String(b[2]).replace(/,/g,'')) - Number(String(a[2]).replace(/,/g,'')));
+    const comparisonHeaders = ['高碳行业','贷款余额（亿元）','基期不良率','现有政策-2040年-使用CCUS','现有政策-2040年-不使用CCUS','温室世界-2040年-使用CCUS','温室世界-2040年-不使用CCUS','有序转型-2040年-使用CCUS','有序转型-2040年-不使用CCUS'];
+    const comparisonRows = buildHighCarbonScenarioComparison(portfolio, results);
+    const nonHighCarbonAll = portfolio.filter((c) => !c.isHighCarbon);
+    const nplTrend = buildIndustryTrendTable(top5Loan, nonHighCarbonAll, results, opts, 'nplRatio', '非高碳行业全部小计');
+    const generationTrend = buildIndustryTrendTable(top5Loan, nonHighCarbonAll, results, opts, 'nplGenerationRate', '非高碳行业全部小计');
+    const highCarbonTrendGroups = ANALYSIS_HIGH_CARBON_MAJORS.map((name) => ({ name, customers: portfolio.filter((c) => c.isHighCarbon && c.highCarbonMajor === name) }));
+    const highCarbonTrend = buildIndustryTrendTable(highCarbonTrendGroups, portfolio.filter((c) => c.isHighCarbon), results, opts, 'nplRatio', '高碳行业小计');
+    const trendHeaders = (years) => ['前5大非高碳行业','贷款余额（亿元）', ...years.map((y,i) => `${y}年${i===0?'(基期)':''}`)];
 
     const table1Title = '表 1：高碳行业明细统计表（行业维度 - 高碳）';
     registerAnalysisTableExport(
@@ -6614,13 +7005,14 @@
     registerAnalysisTableExport(
       'analysis-t5',
       table5Title,
-      ['客户名称', '贷款余额（万元）', '所属行业', '所属地区', '预测违约年份'],
+      ['客户名称', '贷款余额（万元）', '所属行业', '所属地区', '预测违约年份', '违约原因'],
       table5Rows.map((r) => [
         r.companyName,
         formatAnalysisAmt(r.loanBalance),
         r.industry,
         r.region,
         r.defaultYear ? `${r.defaultYear}年` : '-',
+        r.defaultReason || '其他',
       ]),
     );
 
@@ -6628,13 +7020,14 @@
     registerAnalysisTableExport(
       'analysis-t6',
       table6Title,
-      ['客户名称', '贷款余额（万元）', '所属行业', '所属地区', '预测违约年份'],
+      ['客户名称', '贷款余额（万元）', '所属行业', '所属地区', '预测违约年份', '违约原因'],
       table6Rows.map((r) => [
         r.companyName,
         formatAnalysisAmt(r.loanBalance),
         r.industry,
         r.region,
         r.defaultYear ? `${r.defaultYear}年` : '-',
+        r.defaultReason || '其他',
       ]),
     );
 
@@ -6646,7 +7039,7 @@
         head: `<tr><th>行业名称（大类）</th><th>子行业</th>${ANALYSIS_METRIC_TABLE_HEAD}</tr>`,
         body: (r) => `<tr><td>${esc(r.major)}</td><td>${esc(r.sub)}</td>${renderAnalysisMetricCells(r.metrics)}</tr>`,
       },
-      10,
+      11,
     );
 
     const table2 = renderAnalysisMetricTablePanel(
@@ -6682,8 +7075,8 @@
       9,
     );
 
-    const customerTableHead = '<tr><th>客户名称</th><th>贷款余额（万元）</th><th>所属行业</th><th>所属地区</th><th>预测违约年份</th></tr>';
-    const customerRow = (r) => `<tr><td>${esc(r.companyName)}</td><td class="num">${formatAnalysisAmt(r.loanBalance)}</td><td>${esc(r.industry)}</td><td>${esc(r.region)}</td><td>${r.defaultYear ? `${r.defaultYear}年` : '-'}</td></tr>`;
+    const customerTableHead = '<tr><th>客户名称</th><th>贷款余额（万元）</th><th>所属行业</th><th>所属地区</th><th>预测违约年份</th><th>违约原因</th></tr>';
+    const customerRow = (r) => `<tr><td>${esc(r.companyName)}</td><td class="num">${formatAnalysisAmt(r.loanBalance)}</td><td>${esc(r.industry)}</td><td>${esc(r.region)}</td><td>${r.defaultYear ? `${r.defaultYear}年` : '-'}</td><td>${esc(r.defaultReason || '其他')}</td></tr>`;
 
     const table5 = renderAnalysisCustomerTablePanel(
       table5Title,
@@ -6691,7 +7084,7 @@
       table5Rows,
       customerTableHead,
       customerRow,
-      5,
+      6,
     );
 
     const table6 = renderAnalysisCustomerTablePanel(
@@ -6700,7 +7093,7 @@
       table6Rows,
       customerTableHead,
       customerRow,
-      5,
+      6,
     );
 
     const charts = [
@@ -6730,16 +7123,25 @@
       ),
     ].join('');
 
+    const requestedTables = [
+      renderSimpleAnalysisTable('高碳客户违约调整行业分布表','analysis-adjust-industry',adjustmentHeaders,industryAdjustmentRows),
+      renderSimpleAnalysisTable('高碳客户违约调整区域分布表','analysis-adjust-region',['地区（省/自治区/直辖市）',...adjustmentHeaders.slice(1)],regionAdjustmentRows),
+      renderSimpleAnalysisTable('高碳客户不良贷款率变动情况（情景×CCUS对比）','analysis-hc-compare',comparisonHeaders,comparisonRows),
+      renderSimpleAnalysisTable('高碳客户不良贷款率变动情况（年度趋势表）','analysis-hc-year-trend',['高碳行业','贷款余额（亿元）',...highCarbonTrend.years.map((y,i) => `${y}年${i===0?'(基期)':''}`)],highCarbonTrend.rows),
+      renderSimpleAnalysisTable('前5大非高碳行业不良贷款率变动表','analysis-nonhc-npl-trend',trendHeaders(nplTrend.years),nplTrend.rows),
+      renderSimpleAnalysisTable('前5大非高碳行业不良贷款生成率变动表','analysis-nonhc-gen-trend',trendHeaders(generationTrend.years),generationTrend.rows),
+    ].join('');
+
     return `
       <div class="analysis-section analysis-section--tables">
-        ${table1}${table2}${table3}${table4}${table5}${table6}
+        ${table1}${requestedTables}${table5}${table6}
       </div>
       <div class="analysis-section analysis-section--charts">
         ${charts}
       </div>`;
   }
 
-  function renderResults() {
+  function renderResults(mode = 'analysis') {
     const { sources, src, res, taskId } = resolveResultSource();
     const filteredRes = filterAnalysisResults(res, null, '');
     const defaultMonitorCustomers = collectRiskWarningsFromResults(filteredRes);
@@ -6751,16 +7153,29 @@
     const pushWarningTaskId = taskId || src?.sourceTaskId;
     const portfolio = src ? buildResultsAnalysisPortfolio(src, taskId) : [];
     const analysisOpts = {
-      scenarioCode: '',
+      scenarioCode: window._resultScenarioCode || '',
       analysisYear: null,
     };
     const analysisContent = res.length && portfolio.length
       ? buildResultsAnalysisContent(portfolio, res, analysisOpts)
       : (res.length ? '<div class="empty" style="padding:24px 0">暂无可用客户样本，无法生成统计分析表。</div>' : '');
+    const resultJob = src?.isJob ? getStressJob(src.id) : null;
+    const summaryCodes = resultJob?.selectedScenarioCodes?.length ? resultJob.selectedScenarioCodes : [...new Set(res.map((r) => r.scenarioCode).filter(Boolean))];
+    const summaryContent = summaryCodes.map((code) => renderStressSummaryRegulatoryTable(code, res.filter((r) => r.scenarioCode === code), {
+      job: resultJob,
+      showExport: !!resultJob,
+      exportHandler: resultJob ? `CRST_APP.exportNplProvSummaryTable('${code}')` : '',
+    })).join('');
+
+    const pageTitle = mode === 'item' ? '客户及行业压力测试分项结果' : mode === 'summary' ? '压力测试结果汇总表' : '压测结果分析';
+    const analysisSection = mode === 'summary' ? '' : `<section class="result-section"><div class="result-section-hd"><h3 class="result-section-title">${mode === 'item' ? '客户及行业压力测试分项结果' : '测试结果分析'}</h3></div>${analysisContent}</section>`;
+    const summarySection = mode === 'summary' ? `<section class="result-section"><div class="result-section-hd"><h3 class="result-section-title">压力测试结果汇总表</h3></div>${summaryContent || '<div class="empty">暂无压力测试结果汇总数据</div>'}</section>` : '';
+    const monitorSection = mode === 'analysis' ? `<div class="analysis-panel analysis-panel--default-monitor" style="margin-top:20px"><div class="analysis-panel-hd"><h3 class="analysis-panel-title">违约客户监控 — 行业新增不良/违约户</h3><div class="analysis-panel-actions">${defaultMonitorCustomers.length ? `<button type="button" class="btn btn-default" onclick="CRST_APP.exportDefaultMonitorData()">导出数据</button>` : ''}${canPushWarning ? `<button type="button" class="btn btn-primary" onclick="CRST_APP.oneClickIssueResultRiskWarnings(${pushWarningTaskId})">一键下发预警</button>` : ''}</div></div>${renderDefaultMonitorChart(defaultMonitorCustomers)}</div>` : '';
+    const analysisFilterBar = mode === 'summary' ? '' : `<div class="filter-bar analysis-view-filter"><label>情景</label><select class="select" onchange="CRST_APP.setResultScenario(this.value)"><option value="">全部情景</option>${STRESS_SCENARIO_OPTIONS.map((s) => `<option value="${s.code}" ${analysisOpts.scenarioCode===s.code?'selected':''}>${s.label}</option>`).join('')}</select><label>CCUS</label><select class="select" onchange="CRST_APP.setResultCcusMode(this.value)"><option value="" ${!window._resultCcusMode?'selected':''}>全部</option><option value="WITH" ${window._resultCcusMode==='WITH'?'selected':''}>使用CCUS</option><option value="WITHOUT" ${window._resultCcusMode==='WITHOUT'?'selected':''}>不使用CCUS</option></select></div>`;
 
     return `
       <div class="card">
-        <div class="toolbar"><h2 class="page-title">压测结果分析</h2><span class="tag tag-info">客户/行业 × CCUS 四类结果</span></div>
+        <div class="toolbar"><h2 class="page-title">${pageTitle}</h2><span class="tag tag-info">客户/行业 × CCUS 四类结果</span></div>
         <div class="v11-rule-note">结果按客户明细、行业汇总分别提供“使用CCUS”和“不使用CCUS”视图，并生成中国人民银行口径汇总表；所有下载均生成真实 Excel/PNG 文件。</div>
         ${renderStressResultJobFilterBar({
           sources,
@@ -6769,19 +7184,10 @@
           emptyLabel: '暂无已完成结果',
           extraHtml: canAppReport ? `<button type="button" class="btn btn-primary" onclick="CRST_APP.goToApplicationReport(${taskId})">应用报送</button>` : '',
         })}
+        ${analysisFilterBar}
 
-        <div class="analysis-panel analysis-panel--default-monitor">
-          <div class="analysis-panel-hd">
-            <h3 class="analysis-panel-title">违约客户监控 — 行业新增不良/违约户</h3>
-            <div class="analysis-panel-actions">
-              ${defaultMonitorCustomers.length ? `<button type="button" class="btn btn-default" onclick="CRST_APP.exportDefaultMonitorData()">导出数据</button>` : ''}
-              ${canPushWarning ? `<button type="button" class="btn btn-primary" onclick="CRST_APP.oneClickIssueResultRiskWarnings(${pushWarningTaskId})">一键下发预警</button>` : ''}
-            </div>
-          </div>
-          ${renderDefaultMonitorChart(defaultMonitorCustomers)}
-        </div>
+        ${analysisSection}${summarySection}${monitorSection}
 
-        ${analysisContent}
       </div>`;
   }
 
@@ -6809,7 +7215,7 @@
     return `
       <div class="card">
         <div class="toolbar">
-          <h2 class="page-title">因子库管理</h2>
+          <h2 class="page-title">高碳行业因子库</h2>
           <button class="btn btn-primary" onclick="CRST_APP.openFactorModal('create')">新增因子</button>
         </div>
         ${table}
@@ -7144,9 +7550,15 @@
     const byCompany = new Map();
     filtered.forEach((r) => {
       if (!byCompany.has(r.companyName)) {
-        byCompany.set(r.companyName, { companyName: r.companyName, alrByYear: {} });
+        byCompany.set(r.companyName, { companyName: r.companyName, reportVersion: job.dataCaliber || '-', alrByYear: {}, financialByYear: {} });
       }
       byCompany.get(r.companyName).alrByYear[r.testYear] = r.assetLiabilityRatioAfter;
+      byCompany.get(r.companyName).financialByYear[r.testYear] = {
+        revenue: r.revenueAfter,
+        operatingExpense: r.operatingExpense,
+        netProfit: r.netProfitAfter,
+        assetLiabilityRatio: r.assetLiabilityRatioAfter,
+      };
     });
     return { scenarioCode, years, rows: [...byCompany.values()] };
   }
@@ -7161,10 +7573,9 @@
     return defaults;
   }
 
-  /** 当年新转不良占用准备：不良余额 × 贷款拨备率（参试银行基础信息） */
-  function calcNplProvisionAmount(nplBalance, capital) {
-    const ratio = (capital?.provisionRatioReq ?? 2.5) / 100;
-    return Math.round((nplBalance || 0) * ratio);
+  /** 非特殊客户测试期拨备：基期业务余额 × PDt × LGDt。 */
+  function calcNplProvisionAmount(baseBalance, capital, pd = 1, lgd = 0.45) {
+    return Math.round((baseBalance || 0) * Math.max(0, Math.min(1, pd)) * Math.max(0, Math.min(1, lgd)));
   }
 
   function computeFinTransResultsForScenario(jobId, scenarioCode) {
@@ -7182,6 +7593,7 @@
     const enabledFactors = getEnabledEmissionFactors();
     const rows = sampled.map((r) => {
       const alrByYear = {};
+      const financialByYear = {};
       const enriched = {
         ...r,
         costIncomeRatio: r.costIncomeRatio ?? p.costIncomeRatio,
@@ -7195,8 +7607,17 @@
         });
         const out = enrichStressResult(applyScenarioAdjustment(out0, scenarioCode, p), enriched, p);
         alrByYear[y] = out.assetLiabilityRatioAfter;
+        const totalAssets = Number(r.totalAssets || 0);
+        financialByYear[y] = {
+          revenue: out.revenueAfter ?? r.revenue ?? 0,
+          operatingExpense: out.operatingExpense ?? r.operatingExpense ?? 0,
+          netProfit: out.netProfitAfter ?? r.netProfit ?? 0,
+          totalAssets,
+          totalLiabilities: totalAssets * (out.assetLiabilityRatioAfter ?? r.assetLiabilityRatio ?? 0),
+          assetLiabilityRatio: out.assetLiabilityRatioAfter ?? r.assetLiabilityRatio ?? 0,
+        };
       });
-      return { companyName: r.companyName, alrByYear };
+      return { companyName: r.companyName, reportVersion: r.financialReportVersion || t.dataCaliber || '-', alrByYear, financialByYear };
     });
     const payload = { scenarioCode, years, rows };
     stressFinTransByJob[jobId] = payload;
@@ -7207,6 +7628,56 @@
     const t = getStressJob(jobId);
     if (!t) return null;
     return computeFinTransResultsForScenario(jobId, finTransPrimaryScenarioCode(t));
+  }
+
+  function buildTestPeriodFinancialRows(job) {
+    const scenarioCode = finTransPrimaryScenarioCode(job);
+    const data = getFinTransAlrTableDataForScenario(job, scenarioCode);
+    const rows = [];
+    (data.rows || []).forEach((r) => {
+      (data.years || []).forEach((year) => {
+        const f = r.financialByYear?.[year] || {};
+        rows.push({ companyName: r.companyName, reportVersion: r.reportVersion || job.dataCaliber || '-', year, ...f, assetLiabilityRatio: f.assetLiabilityRatio ?? r.alrByYear?.[year] });
+      });
+    });
+    return rows;
+  }
+
+  function exportTestPeriodFinancialData(jobId) {
+    const job = getStressJob(jobId);
+    if (!job) return;
+    const rows = buildTestPeriodFinancialRows(job);
+    const lines = ['客户名称\t财报版本\t测试年份\t营业收入\t营业支出\t净利润\t资产总计\t负债合计\t资产负债率', ...rows.map((r) => [r.companyName, r.reportVersion, r.year, r.revenue ?? '', r.operatingExpense ?? '', r.netProfit ?? '', r.totalAssets ?? '', r.totalLiabilities ?? '', r.assetLiabilityRatio ?? ''].join('\t'))];
+    triggerExportFileDownload('参试客户测试期财务数据表.xlsx', lines.join('\n'));
+    addStressJobLog(jobId, '财务传导：下载参试客户测试期财务数据表');
+  }
+
+  function openTestPeriodFinancialImport(jobId) {
+    const input = document.getElementById('testPeriodFinancialFile');
+    if (!input) return;
+    input.dataset.jobId = String(jobId);
+    input.value = '';
+    input.click();
+  }
+
+  function confirmTestPeriodFinancialFile(input) {
+    const jobId = Number(input?.dataset?.jobId || 0);
+    const job = getStressJob(jobId);
+    if (!job || !input?.files?.length) return;
+    job.testPeriodFinancialImported = true;
+    job.testPeriodFinancialFileName = input.files[0].name;
+    job.updatedAt = nowStr();
+    addStressJobLog(jobId, `财务传导：导入参试客户测试期财务数据表「${input.files[0].name}」`);
+    toast('参试客户测试期财务数据表已导入');
+    render();
+  }
+
+  function renderTestPeriodFinancialTable(job) {
+    const rows = buildTestPeriodFinancialRows(job).slice(0, 50);
+    const table = renderFullTable(rows,
+      '<tr><th>客户名称</th><th>财报版本</th><th>测试年份</th><th>营业收入</th><th>营业支出</th><th>净利润</th><th>资产负债率</th></tr>',
+      (r) => `<tr><td>${esc(r.companyName)}</td><td>${esc(r.reportVersion)}</td><td>${r.year}</td><td class="num">${formatAnalysisAmt(r.revenue)}</td><td class="num">${formatAnalysisAmt(r.operatingExpense)}</td><td class="num">${formatAnalysisAmt(r.netProfit)}</td><td class="num">${formatAlrPercent(r.assetLiabilityRatio)}</td></tr>`, 7);
+    return `<section class="result-section" style="margin-top:20px"><div class="result-section-hd"><h4 class="result-section-title">参试客户测试期财务数据表</h4><div><button type="button" class="btn btn-default" onclick="CRST_APP.openTestPeriodFinancialImport(${job.id})">导入</button> <button type="button" class="btn btn-default" onclick="CRST_APP.exportTestPeriodFinancialData(${job.id})">下载</button></div></div><p class="stress-step-hint">按财报版本逐户、逐年展示测试期会计科目；测试方案未覆盖的科目保持基期值。当前预览最多展示50行，下载文件包含全部结果。</p>${table}</section>`;
   }
 
   function getFinTransAlrTableDataForScenario(job, scenarioCode) {
@@ -7267,6 +7738,7 @@
       const p = getScenarioStressParams(job, scenarioCode);
       finData.rows.forEach((row) => {
         const rec = recMap[row.companyName] || {};
+        if (!isDefaultJudgmentEligible(rec)) return;
         const alr0 = rec.assetLiabilityRatio ?? criteria.assetLiabilityRatio;
         let defaultYear = null;
         let alrAfter = null;
@@ -7565,9 +8037,11 @@
         const ecl = eclMap[r.companyName];
         const rec = recMap[r.companyName] || {};
         const pdBefore = r.pdBefore ?? ecl.pd;
-        const pdAfter = r.pdAfter ?? ((pdAdjust && r.impactRate != null)
-          ? mockAdjustedPd(ecl.pd, r.impactRate)
-          : pdBefore);
+        const pdAfter = rec.specialCustomer
+          ? pdBefore
+          : (r.defaultFlag ? 1 : (r.pdAfter ?? ((pdAdjust && r.impactRate != null)
+            ? mockAdjustedPd(ecl.pd, r.impactRate)
+            : pdBefore)));
         return {
           companyName: r.companyName,
           branchName: r.branchName || rec.branchName,
@@ -7580,6 +8054,7 @@
           lgd: ecl.lgd,
           ead: ecl.ead,
           eclAmount: ecl.eclAmount,
+          specialCustomer: !!rec.specialCustomer,
           impactRate: r.impactRate,
         };
       });
@@ -7774,11 +8249,11 @@
       const lgd = r.lgd ?? 0.45;
       const ead = r.ead ?? 0;
       const eclBefore = pdBefore * lgd * ead;
-      const eclAfter = pdAfter * lgd * ead;
       const rec = recMap[r.companyName] || {};
+      const eclAfter = rec.specialCustomer ? (r.eclAmount ?? pdBefore * lgd * ead) : pdAfter * lgd * ead;
       const srcRec = srcRecMap[r.companyName] || rec;
       const noFin = srcTask ? recordLacksFinancialData(srcRec, srcTask) : false;
-      let pdSource = '财报传导';
+      let pdSource = rec.specialCustomer ? '特殊客户·保持基期值' : (r.defaultFlag ? '测试期违约·PD=100%' : '财报传导');
       if (noFin) {
         pdSource = isInternalPdRecordReady(srcRec, srcTask)
           ? (srcRec.hasInternalRatingModel ? '内评 PD' : '减估值 PD0/LGD0')
@@ -8422,8 +8897,8 @@
     if (!sources.length) {
       return `
         <div class="card">
-          <div class="toolbar"><h2 class="page-title">逐户判定</h2></div>
-          <div class="empty fin-trans-empty">暂无逐户判定结果。请先在「情景分析」中配置压测情景并执行财务传导。</div>
+          <div class="toolbar"><h2 class="page-title">参试客户测试期财务数据表</h2></div>
+          <div class="empty fin-trans-empty">暂无逐户判定结果。请先在「分项计算」中依次完成情景导入、特殊客户导入和财务传导。</div>
         </div>`;
     }
     const adjustmentTable = job
@@ -8435,7 +8910,7 @@
       : '<div class="empty" style="padding:24px 0">暂无违约调整明细</div>';
     return `
       <div class="card">
-        <div class="toolbar"><h2 class="page-title">逐户判定</h2></div>
+        <div class="toolbar"><h2 class="page-title">参试客户测试期财务数据表</h2></div>
         ${renderFinTransFilterBar(state)}
         ${adjustmentTable}
       </div>`;
@@ -8476,7 +8951,7 @@
       return `
         <div class="card">
           <div class="toolbar"><h2 class="page-title">不良和拨备计算</h2></div>
-          <div class="empty fin-trans-empty">暂无不良和拨备计算结果。请先在「情景分析」完成压测，并确保数据处理中已录入贷款拨备率与拨备覆盖率。</div>
+          <div class="empty fin-trans-empty">暂无不良和拨备计算结果。请先在「分项计算」依次完成财务传导和PD/LGD计算。</div>
         </div>`;
     }
     const tables = job
@@ -8866,7 +9341,7 @@
         createdAt: nowStr(),
         updatedAt: nowStr(),
       };
-      addStressJobLog(jobId, `新建压测任务：导入 4 份 Excel（客户基础 ${tpl.length.toLocaleString()} 条）`);
+      addStressJobLog(jobId, `新建压测任务：导入与数据处理结果一致的 5 张基础表（客户基础 ${tpl.length.toLocaleString()} 条）`);
     }
     job.selectedScenarioCodes = STRESS_SCENARIO_OPTIONS.map((s) => s.code);
     stressJobs.unshift(job);
@@ -9132,6 +9607,29 @@
 
   function setAppReportTask(id) { window._appReportTaskId = id; render(); }
 
+  function setRiskWarningTask(id) {
+    window._riskWarningTaskId = Number(id) || null;
+    getListPager('risk-warning').page = 1;
+    render();
+  }
+
+  function renderRiskWarning() {
+    const available = tasks.filter((t) => (resultsByTask[t.id] || []).length || t.status === 'COMPLETED');
+    let taskId = Number(window._riskWarningTaskId || available[0]?.id || 0);
+    if (!available.some((t) => t.id === taskId)) taskId = available[0]?.id || 0;
+    window._riskWarningTaskId = taskId || null;
+    const task = getTask(taskId);
+    const warnings = taskId ? getRiskWarningRows(taskId) : [];
+    const options = available.map((t) =>
+      '<option value="' + t.id + '" ' + (t.id === taskId ? 'selected' : '') + '>' + esc(t.taskName) + '</option>'
+    ).join('');
+    const table = renderPagedTable('risk-warning', warnings,
+      '<tr><th>行业</th><th>客户名称</th><th>所在分行</th><th>预计违约年份</th><th>预警状态</th></tr>',
+      (r) => '<tr><td>' + esc(r.standardIndustry || '未分类') + '</td><td>' + esc(r.companyName || '-') + '</td><td>' + esc(r.branchName || '-') + '</td><td>' + (r.testYear != null ? r.testYear + '年' : '-') + '</td><td>' + (task?.riskWarningIssuedAt ? '<span class="tag tag-success">已下发</span>' : '<span class="tag tag-warning">待下发</span>') + '</td></tr>',
+      5);
+    return '<div class="card"><div class="toolbar"><h2 class="page-title">风险预警</h2><button type="button" class="btn btn-primary" ' + (!warnings.length ? 'disabled' : '') + ' onclick="CRST_APP.openRiskPushModal(' + (taskId || 0) + ')">下发风险预警</button></div><div class="filter-bar"><div class="filter-item"><label>压测任务</label><select class="select" onchange="CRST_APP.setRiskWarningTask(this.value)">' + (options || '<option value="">暂无已完成任务</option>') + '</select></div></div>' + (warnings.length ? table : '<div class="empty">当前任务暂无触发违约判定的客户</div>') + '</div>';
+  }
+
   function buildRiskPushPreviewHtml(t, warnings) {
     const byBranch = new Map();
     warnings.forEach((w) => {
@@ -9202,8 +9700,11 @@
       'stress-fin-trans': () => renderStressStepModule('stress-fin-trans'),
       'stress-pd-lgd': () => renderStressStepModule('stress-pd-lgd'),
       'stress-npl-prov': () => renderStressStepModule('stress-npl-prov'),
-      results: renderResults,
+      'stress-item-results': () => renderResults('item'),
+      'stress-summary': () => renderResults('summary'),
+      results: () => renderResults('analysis'),
       exports: renderExports,
+      'risk-warning': renderRiskWarning,
       factors: renderFactors,
       mappings: renderMappings,
       'airport-throughput': renderAirportThroughput,
@@ -9303,6 +9804,7 @@
     return {
       name: document.getElementById('d_taskName')?.value.trim() || '',
       reportYear: document.getElementById('d_reportYear')?.value || '2026',
+      baselineYear: document.getElementById('d_baselineYear')?.value || '2025',
       loanType: document.getElementById('d_loanType')?.value || 'CORPORATE',
       loanRegion: document.getElementById('d_loanRegion')?.value || 'DOMESTIC',
       highCarbonFlag: document.getElementById('d_highCarbonFlag')?.value || 'AUTO',
@@ -9313,16 +9815,17 @@
   }
 
   function saveTask() {
-    const { name, reportYear, loanType, loanRegion, highCarbonFlag, stressPurpose, selectedIndustryCodes, desc } = readTaskFormFields();
+    const { name, reportYear, baselineYear, loanType, loanRegion, highCarbonFlag, stressPurpose, selectedIndustryCodes, desc } = readTaskFormFields();
 
     if (taskDraftMode) {
-      if (!name || !reportYear || !loanType || !loanRegion) { toast('请填写必填项', 'error'); return; }
+      if (!name || !reportYear || !baselineYear || !loanType || !loanRegion) { toast('请填写必填项', 'error'); return; }
       const createdId = ++nextId.task;
       tasks.unshift({
         id: createdId,
         taskCode: genCode('CRST'),
         taskName: name,
         reportYear: Number(reportYear),
+        baselineYear: Number(baselineYear),
         loanType,
         loanRegion,
         highCarbonFlag,
@@ -9351,8 +9854,9 @@
       if (!name) { toast('请填写任务名称', 'error'); return; }
       t.taskName = name;
       if (!hasTaskFinancialDataSynced(t)) {
-        if (!reportYear || !loanType || !loanRegion) { toast('请填写必填项', 'error'); return; }
+        if (!reportYear || !baselineYear || !loanType || !loanRegion) { toast('请填写必填项', 'error'); return; }
         t.reportYear = Number(reportYear);
+        t.baselineYear = Number(baselineYear);
         t.loanType = loanType;
         t.loanRegion = loanRegion;
         t.highCarbonFlag = document.getElementById('d_highCarbonFlag')?.value || 'AUTO';
@@ -9412,7 +9916,7 @@
     if (!t) return;
     openConfirmDeleteModal({
       title: '删除任务确认',
-      messageHtml: `请您确认是否删除该数据处理任务：<strong>${esc(t.taskName || '-')}</strong>？`,
+      messageHtml: `请您确认是否删除该数据处理任务：<strong>${esc(t.taskName || '-')}</strong>？<br>基准年度：<strong>${getTaskBaselineYear(t)}</strong>`,
       onConfirm: () => {
         const i = tasks.findIndex((x) => x.id === id);
         if (i < 0) return;
@@ -9515,7 +10019,7 @@
     const loanTypeLabel = t.loanType === 'PERSONAL_BUSINESS' ? '个人经营性贷款' : t.loanType === 'PERSONAL' ? '个人贷款' : '对公（含普惠）';
     const regionLabel = LOAN_REGION_LABELS[t.loanRegion] || '境内（含香港）';
     t.updatedAt = nowStr();
-    addLog(id, `数据同步与确认：开始同步贷款数据（${regionLabel}，${t.reportYear || '-'}年，${loanTypeLabel}，${getTaskIndustrySummary(t)}）`);
+    addLog(id, `数据同步与确认：开始同步贷款数据（基准年度 ${getTaskBaselineYear(t)}，${regionLabel}，${loanTypeLabel}，全部行业）`);
     render();
     setTimeout(() => {
       recordsByTask[id] = mockLoanSyncRecords(id, t);
@@ -9527,8 +10031,8 @@
         return;
       }
       t.loanDataSynced = true;
-      t.basicInfoYear = getTaskReportYear(t);
-      t.financialDataYear = t.basicInfoYear;
+      t.basicInfoYear = getTaskBaselineYear(t);
+      t.financialDataYear = getTaskReportYear(t);
       ensureBankCapitalMetricsFromLoanSync(t);
       refreshSyncStats(id);
       t.updatedAt = nowStr();
@@ -9547,10 +10051,16 @@
     addLog(id, '数据同步与确认：开始同步内部评级');
     render();
     setTimeout(() => {
-      (recordsByTask[id] || []).forEach((r) => {
+      (recordsByTask[id] || []).forEach((r, i) => {
         if (r.pdValue == null) r.pdValue = 0.02;
         r.internalRating = r.internalRating || (r.pdValue >= 0.08 ? 'BBB-' : r.pdValue >= 0.03 ? 'BBB+' : 'A');
         r.pdInternalT0 = r.pdValue;
+        r.ratingModelCode = r.ratingModelCode || `MODEL-${String((i % 3) + 1).padStart(2, '0')}`;
+        r.ratingModelName = r.ratingModelName || ['对公客户统一评级模型', '小企业客户评级模型', '专业机构客户评级模型'][i % 3];
+        r.ratingResult1 = r.ratingResult1 || r.internalRating;
+        r.qualitativeScore = r.qualitativeScore ?? (72 + (i % 8));
+        r.creditScore = r.creditScore ?? (68 + (i % 10));
+        r.governmentSupportScore = r.governmentSupportScore ?? (60 + (i % 12));
       });
       t.internalRatingDataSynced = true;
       t.syncingStep = '';
@@ -9583,18 +10093,31 @@
     }, 600);
   }
 
-  function generateBaseTables(id) {
+  function generateBaseTable(id, key) {
     const t = getTask(id);
     if (!t || t.baseTablesGenerated) return;
     if (!t.loanDataSynced || !t.internalRatingDataSynced || !hasTaskFinancialDataSynced(t) || !t.eclDataSynced || !t.gelanDataSynced) {
       toast('请按顺序完成全部数据同步', 'error'); return;
     }
-    t.baseTablesGenerated = true;
-    t.status = 'READY_STRESS';
+    const index = baseTableGenerationSteps.findIndex((item) => item.key === key);
+    if (index < 0) return;
+    if (index > 0 && !hasGeneratedBaseTable(t, index - 1)) {
+      toast(`请先生成${baseTableGenerationSteps[index - 1].label}`, 'error');
+      return;
+    }
+    const current = baseTableGenerationSteps[index];
+    if (hasGeneratedBaseTable(t, index)) return;
+    t[current.flag] = true;
     t.updatedAt = nowStr();
-    syncBankBasicInfoFromRecords(id);
-    addLog(id, '数据同步与确认：已生成五张基础表');
-    toast('五张基础表生成完成，可进入分项计算');
+    if (key === 'bankBasic') syncBankBasicInfoFromRecords(id);
+    addLog(id, `数据同步与确认：已生成${current.label}`);
+    if (index === baseTableGenerationSteps.length - 1) {
+      t.baseTablesGenerated = true;
+      t.status = 'READY_STRESS';
+      toast('五张基础表已按顺序生成完成，可进入分项计算');
+    } else {
+      toast(`${current.label}生成完成`);
+    }
     render();
   }
 
@@ -9641,8 +10164,8 @@
         const period = taskReportPeriodRange(t);
         t.factorVersion = suggestFactorVersionByReportEnd(period.end);
       }
-      t.basicInfoYear = getTaskReportYear(t);
-      t.financialDataYear = t.basicInfoYear;
+      t.basicInfoYear = getTaskBaselineYear(t);
+      t.financialDataYear = getTaskReportYear(t);
       t.mappingVersion = 'M-' + getActiveMappingVersion();
       t.scenarioVersion = 'S-' + getPublishedScenarioVersion();
       const recs = recordsByTask[id] || [];
@@ -9855,7 +10378,7 @@
     t.avgConfirmedAt = nowStr();
     t.updatedAt = nowStr();
     addLog(id, '数据处理：确认处理结果，进入压测流水线');
-    toast('数据处理已完成，可在「情景分析」新建压测任务并引用本任务数据');
+    toast('数据处理已完成，可在「分项计算」新建压测任务并引用本任务数据');
     pendingCreateStressJob = { sourceTaskId: id, fromPage: 'scenario-analysis' };
     stressJobListMode = true;
     currentStressJobId = null;
@@ -9962,7 +10485,7 @@
       taskEditMode = false;
     }
     t.updatedAt = nowStr();
-    addStressJobLog(id, `情景分析：已保存压测情景与公共参数（${selectedCodes.length} 个情景）`);
+    addStressJobLog(id, `分项计算：已保存压测情景与公共参数（${selectedCodes.length} 个情景，含使用/不使用CCUS组合）`);
     toast('压测情景与公共参数已保存，可执行下方计算步骤');
     render();
   }
@@ -10028,7 +10551,7 @@
   function mockPickScenarioParamsImportFile() {
     scenarioParamsImportFilePicked = true;
     const hint = document.getElementById('scenario_params_import_hint');
-    if (hint) hint.textContent = '已选择：压测情景与公共参数导入模板.xlsx';
+    if (hint) hint.textContent = '已选择：情景参数表.xlsx';
   }
 
   function confirmScenarioParamsImport() {
@@ -10048,11 +10571,66 @@
     t.stressScenarioParams = imported.stressScenarioParams;
     t.stressScenarioParamsSaved = false;
     t.updatedAt = nowStr();
-    addStressJobLog(jobId, `情景分析：导入压测情景与公共参数（${imported.selectedScenarioCodes.length} 个情景）`);
+    addStressJobLog(jobId, `分项计算：导入压测情景与公共参数（${imported.selectedScenarioCodes.length} 个情景，形成6个CCUS组合）`);
     hideModal();
     pendingScenarioParamsImportJobId = null;
     scenarioParamsImportFilePicked = false;
     toast('情景参数已导入，请确认后保存');
+    render();
+  }
+
+  function openSpecialCustomerImportModal(jobId) {
+    const t = resolveEntity(jobId);
+    if (!t || !isStressJobEntity(t)) return;
+    if (!isStressScenarioParamsSaved(t)) { toast('请先保存情景参数', 'error'); return; }
+    pendingSpecialCustomerImportJobId = jobId;
+    specialCustomerImportFilePicked = false;
+    const hint = document.getElementById('special_customer_import_hint');
+    if (hint) hint.textContent = '未选择文件';
+    const body = document.getElementById('specialCustomerImportBody');
+    const recs = stressRecordsByJob[jobId] || entityRecords(jobId, t);
+    if (body) {
+      body.innerHTML = recs.length ? `<div class="table-wrap"><table><thead><tr><th><input type="checkbox" onchange="document.querySelectorAll('.special-import-check').forEach((el)=>{el.checked=this.checked})" /></th><th>客户名称</th><th>基期五级分类</th><th>基期PD</th><th>识别依据</th></tr></thead><tbody>${recs.map((r) => {
+        const auto = r.specialCustomer || BAD_LOAN_CLASSES.has(r.loanClassification) || Number(r.pdValue ?? r.baselinePd ?? r.baselinePd0) >= 1 || Number(r.pdEclT0) >= 1;
+        const reasons = [];
+        if (Number(r.pdValue ?? r.baselinePd ?? r.baselinePd0) >= 1) reasons.push('PD内评t0=100%');
+        if (Number(r.pdEclT0) >= 1) reasons.push('PDECLt0=100%');
+        if (BAD_LOAN_CLASSES.has(r.loanClassification)) reasons.push('基期五级分类为不良');
+        if (r.specialCustomer && !reasons.length) reasons.push(r.specialCustomerReason || '其他特殊客户');
+        return `<tr><td><input type="checkbox" class="special-import-check" data-rec-id="${r.id}" ${auto ? 'checked' : ''} /></td><td>${esc(r.companyName || '-')}</td><td>${esc(loanClassLabel(r.loanClassification))}</td><td>${r.pdValue ?? r.baselinePd ?? r.baselinePd0 ?? '-'}</td><td>${esc(reasons.join('；') || '导入清单指定')}</td></tr>`;
+      }).join('')}</tbody></table></div>` : '<div class="empty">暂无客户数据</div>';
+    }
+    showModal('modalSpecialCustomerImport');
+  }
+
+  function mockPickSpecialCustomerImportFile() {
+    specialCustomerImportFilePicked = true;
+    const hint = document.getElementById('special_customer_import_hint');
+    if (hint) hint.textContent = '已选择：特殊客户导入.xlsx';
+  }
+
+  function confirmSpecialCustomerImport() {
+    const jobId = pendingSpecialCustomerImportJobId;
+    const t = resolveEntity(jobId);
+    if (!jobId || !t) return;
+    if (!specialCustomerImportFilePicked) { toast('请先选择特殊客户 Excel 文件', 'error'); return; }
+    const recs = stressRecordsByJob[jobId] || entityRecords(jobId, t);
+    const selected = new Set([...document.querySelectorAll('.special-import-check:checked')].map((el) => Number(el.dataset.recId)));
+    recs.forEach((r) => {
+      r.specialCustomer = selected.has(Number(r.id));
+      if (r.specialCustomer) {
+        r.baseInfoFrozen = true;
+        r.specialCustomerReason = r.specialCustomerReason || '特殊客户清单导入';
+      }
+    });
+    t.specialCustomerImportConfirmed = true;
+    t.specialCustomerCount = recs.filter((r) => r.specialCustomer).length;
+    t.updatedAt = nowStr();
+    addStressJobLog(jobId, `分项计算：导入并确认特殊客户 ${t.specialCustomerCount} 户`);
+    pendingSpecialCustomerImportJobId = null;
+    specialCustomerImportFilePicked = false;
+    hideModal();
+    toast(`特殊客户清单已确认，共 ${t.specialCustomerCount} 户`);
     render();
   }
 
@@ -10161,6 +10739,10 @@
   function runFinTrans(id, options = {}) {
     const t = resolveEntity(id);
     if (!t || !isStressJobEntity(t)) return;
+    if (!t.specialCustomerImportConfirmed && t.status !== 'COMPLETED') {
+      toast('请先导入并确认特殊客户清单', 'error');
+      return;
+    }
     if (!options.skipPermissionCheck && !canEditStressSection(t, 1)) {
       toast('当前不可编辑财务传导', 'error');
       return;
@@ -10260,6 +10842,10 @@
     const t = resolveEntity(id);
     if (!t) return;
     const isJob = isStressJobEntity(t);
+    if (isJob && !t.nplProvDone && t.status !== 'COMPLETED') {
+      toast('请先完成不良和拨备计算', 'error');
+      return;
+    }
     const allowedStatus = isJob ? ['READY', 'COMPLETED'] : ['READY_STRESS', 'COMPLETED'];
     if (!allowedStatus.includes(t.status)) {
       toast('当前状态不可执行压测', 'error');
@@ -10337,9 +10923,6 @@
               industryGrowthRate: p.industryGrowthRate ?? p.revenueGrowth,
               costIncomeRatio: p.costIncomeRatio,
               assetLiabilityRatio: p.assetLiabilityRatio,
-              policyIntensity: p.policyIntensity,
-              physicalLossRatio: p.physicalLossRatio,
-              greenInvestmentRatio: p.greenInvestmentRatio,
               revenueBefore: out.revenueBefore,
               revenueAfter: out.revenueAfter,
               operatingExpense: out.operatingExpense,
@@ -10349,8 +10932,8 @@
               eclAfter: out.eclAfter,
               impactRate: out.impactRate,
               netProfitAfter: out.netProfitAfter,
-              defaultFlag: out.defaultFlag,
-              defaultReason: out.defaultReason,
+              defaultFlag: r.specialCustomer ? false : out.defaultFlag,
+              defaultReason: r.specialCustomer ? '' : out.defaultReason,
               assetLiabilityRatioBefore: out.assetLiabilityRatioBefore,
               assetLiabilityRatioAfter: out.assetLiabilityRatioAfter,
               freeQuotaRatio: out.freeQuotaRatio,
@@ -10933,6 +11516,7 @@
     setResultDim: (d) => { window._resultDim = d; getListPager('results').page = 1; render(); },
     setResultYear: (y) => { window._resultYear = y === '' ? '' : y; getListPager('results').page = 1; render(); },
     setResultScenario: (c) => { window._resultScenarioCode = c || ''; getListPager('results').page = 1; render(); },
+    setResultCcusMode: (c) => { window._resultCcusMode = c || ''; getListPager('results').page = 1; render(); },
     setFinTransJob: (key) => { window._finTransJobKey = key; getListPager('fin-trans-alr-view').page = 1; render(); },
     setFinTransYear: (y) => { window._finTransYear = y === '' ? '' : y; getListPager('fin-trans-alr-view').page = 1; render(); },
     setFinTransScenario: (c) => { window._finTransScenarioCode = c || ''; getListPager('fin-trans-alr-view').page = 1; render(); },
@@ -10942,7 +11526,7 @@
     setNplProvJob: (key) => { window._nplProvJobKey = key; getListPager('npl-prov-view').page = 1; render(); },
     setNplProvYear: (y) => { window._nplProvYear = y === '' ? '' : y; getListPager('npl-prov-view').page = 1; render(); },
     setNplProvScenario: (c) => { window._nplProvScenarioCode = c || ''; getListPager('npl-prov-view').page = 1; render(); },
-    setAppReportTask,
+    setAppReportTask, setRiskWarningTask,
     setTaskResultFilter, resetTaskResultFilter,
     onStressScenarioToggle,
     viewTask: (id, tab) => viewTaskInModule(id),
@@ -10957,19 +11541,20 @@
     editStressJob, viewStressJob, viewStressResults, viewStressJobOriginalData, deleteStressJob,
     runFinTrans, runScenarioStress, saveScenarioStressParams, editScenarioStressParams, cancelScenarioStressParams,
     openScenarioParamsImportModal, mockPickScenarioParamsImportFile, confirmScenarioParamsImport,
+    openSpecialCustomerImportModal, mockPickSpecialCustomerImportFile, confirmSpecialCustomerImport,
     markStressScenarioParamsDirty, runStressPipelineStep, runPdLgdCalc, openReleaseNotes,
     editTask,
     confirmDeleteTask: executeConfirmDelete, cancelDeleteTask: cancelConfirmDelete,
     executeConfirmDelete, cancelConfirmDelete,
     startCreateTask, cancelCreateTask, cancelEditTask, onTaskReportEndChange, saveTask, deleteTask,
     onStressPurposeChange, onIndustrySearchInput, onIndustrySelectAll, onIndustryClearAll, onIndustryCheckClick, onIndustryItemClick,
-    startSync, syncAirportThroughput, confirmList, excludeRecord, setSyncStatusFilter,
+    startSync, syncAirportThroughput, confirmList, excludeRecord, setSyncStatusFilter, setFinancialVersionFilter,
     saveSyncFilters, openExcludeCustomerModal, toggleExcludeAll, confirmExcludeCustomers,
     openIndustryDisambigModal, openIndustryEditModal, saveIndustryDisambig,
     exportDataProcessOffline, openDataProcessImportModal, mockPickDataProcessImportFile, confirmDataProcessImport,
     oneClickProcessCustomerData,
     openGhgEmissionEditModal, onGhgAccountedSelectChange, saveGhgEmissionEdits,
-    exportCustomerBasicInfo,
+    exportCustomerBasicInfo, downloadGeneratedBaseTable,
     exportInternalPdData, openInternalPdImportModal, mockPickInternalPdImportFile, confirmInternalPdImport,
     exportBankBasicInfo, exportBankCapitalMetrics, openBankBasicImportModal, mockPickBankBasicImportFile, confirmBankBasicImport,
     openBankCapitalEditModal, saveBankCapitalEdits,
@@ -10985,10 +11570,11 @@
     resetAirportThroughputForm, editAirportThroughput, saveAirportThroughput, deleteAirportThroughput,
     resetCarbonEmissionForm, editCarbonEmission, saveCarbonEmission, deleteCarbonEmission,
     exportResultsSummary, exportStressSummaryTable, exportNplProvSummaryTable, exportDefaultAdjustmentTable, exportFinTransDefaultAdjustmentTable, exportDefaultMonitorData, exportAnalysisPanel, exportPdLgdTable, openExportDetailModal, toggleExportDetailFields, doExportDetail,
+    exportTestPeriodFinancialData, openTestPeriodFinancialImport, confirmTestPeriodFinancialFile,
     issueRiskWarnings, openRiskPushModal, oneClickIssueResultRiskWarnings, confirmIssueRiskWarnings, openDefaultDrill,
     applyResultDefaultCriteria,
     generateRegulatoryReport, openExportSource,
-    downloadExport, syncLoanData: startSyncLoan, syncInternalRatingData: startSyncInternalRating, syncFinancial: startSync, syncEclData: startSyncEcl, syncGelanData: startSyncGelan, generateBaseTables, syncInternalPdData: startSyncInternalPd, hideModal,
+    downloadExport, syncLoanData: startSyncLoan, syncInternalRatingData: startSyncInternalRating, syncFinancial: startSync, syncEclData: startSyncEcl, syncGelanData: startSyncGelan, generateBaseTable, syncInternalPdData: startSyncInternalPd, hideModal,
     openTaskLogDrawer, closeTaskLogDrawer,
     toggleSider, setSiderCollapsed,
   };
