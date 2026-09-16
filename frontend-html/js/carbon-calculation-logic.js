@@ -183,12 +183,12 @@ window.CRST_CARBON = (function () {
   }
 
   /** 碳排放费用（万元），碳价单位：元/吨 */
-  function calcCarbonCost(emissionTon, freeQuotaRatio, carbonPriceYuan, record) {
+  function calcCarbonCost(emissionTon, freeQuotaRatio, carbonPriceYuan, record, options = {}) {
     const payableRatio = 1 - freeQuotaRatio;
     let price = carbonPriceYuan;
     const ind = resolveRecordIndustryMajor(record) || findEmissionFactor(record, options?.factorLibrary)?.industry;
     const ccusEligible = CCUS_INDUSTRIES.includes(ind) && record.baseNetProfitPositive !== false;
-    if (ccusEligible && price >= CCUS_PRICE_CAP) price = CCUS_PRICE_CAP;
+    if (options.useCcus !== false && ccusEligible && price >= CCUS_PRICE_CAP) price = CCUS_PRICE_CAP;
     return (emissionTon * payableRatio * price) / 10000;
   }
 
@@ -231,7 +231,7 @@ window.CRST_CARBON = (function () {
     const emission = isHighCarbon ? calcEmission(revenue, null, record, options?.factorLibrary) : 0;
     const freeQuota = options?.freeQuotaRatio ?? interpolateQuota(scenario, testYear);
     const carbonPrice = options?.carbonPrice ?? interpolateCarbonPrice(scenario, testYear);
-    const carbonCost = isHighCarbon ? calcCarbonCost(emission, freeQuota, carbonPrice, record) : 0;
+    const carbonCost = isHighCarbon ? calcCarbonCost(emission, freeQuota, carbonPrice, record, options) : 0;
 
     const costIncomeRatio = record.costIncomeRatio ?? 0.85;
     const operatingExpense = isHighCarbon

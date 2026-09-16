@@ -45,7 +45,7 @@
   /** 压测流水线步骤页（左侧菜单 ②③④） */
   const STRESS_STEP_PAGES = {
     'scenario-analysis': { pageId: 'scenario-analysis', stepIndex: 1, title: '分项计算', listTitle: '气候风险投融资压测 — 分项计算' },
-    'stress-fin-trans': { pageId: 'stress-fin-trans', stepIndex: 1, title: '财务传导及逐户判定', listTitle: '财务传导及逐户判定' },
+    'stress-fin-trans': { pageId: 'stress-fin-trans', stepIndex: 1, title: '财务传导（含逐户违约判定）', listTitle: '财务传导（含逐户违约判定）' },
     'stress-pd-lgd': { pageId: 'stress-pd-lgd', stepIndex: 2, title: 'PD/LGD计算', listTitle: 'PD/LGD计算' },
     'stress-npl-prov': { pageId: 'stress-npl-prov', stepIndex: 3, title: '不良和拨备计算', listTitle: '不良和拨备计算' },
   };
@@ -255,9 +255,9 @@
 
   /** 压测结果分析 / 不良和拨备计算 — 人民银行压力测试结果汇总表模板 */
   const PBOC_SUMMARY_TITLE_BY_SCENARIO = {
-    BASELINE: '华夏银行压力测试结果汇总表（外报）',
-    GREENHOUSE_WORLD: '华夏银行压力测试结果汇总表（外报）',
-    ORDERLY_TRANSITION: '华夏银行压力测试结果汇总表（外报）',
+    BASELINE: '压力测试结果汇总表（现有政策）',
+    GREENHOUSE_WORLD: '压力测试结果汇总表（温室世界）',
+    ORDERLY_TRANSITION: '压力测试结果汇总表（有序转型）',
   };
   const PBOC_CCUS_TRIO = ['npl_no_ccus', 'npl_ccus', 'provision_ccus'];
   const PBOC_BASIC_PAIR = ['npl', 'provision'];
@@ -575,6 +575,34 @@
     return new Blob([...chunks, ...central, end], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   }
 
+  async function zipBinaryFiles(entries) {
+    const enc = new TextEncoder();
+    const chunks = []; const central = []; let offset = 0;
+    const u16 = (n) => [n & 255, (n >>> 8) & 255];
+    const u32 = (n) => [n & 255, (n >>> 8) & 255, (n >>> 16) & 255, (n >>> 24) & 255];
+    for (const [name, blob] of entries) {
+      const nb = enc.encode(name);
+      const db = new Uint8Array(await blob.arrayBuffer());
+      const crc = crc32(db);
+      const local = new Uint8Array([80,75,3,4,20,0,0,8,0,0,0,0,0,0,...u32(crc),...u32(db.length),...u32(db.length),...u16(nb.length),0,0,...nb]);
+      chunks.push(local, db);
+      central.push(new Uint8Array([80,75,1,2,20,0,20,0,0,8,0,0,0,0,0,0,...u32(crc),...u32(db.length),...u32(db.length),...u16(nb.length),0,0,0,0,0,0,0,0,0,0,0,0,...u32(offset),...nb]));
+      offset += local.length + db.length;
+    }
+    const centralSize = central.reduce((sum, chunk) => sum + chunk.length, 0);
+    const end = new Uint8Array([80,75,5,6,0,0,0,0,...u16(entries.length),...u16(entries.length),...u32(centralSize),...u32(offset),0,0]);
+    return new Blob([...chunks, ...central, end], { type: 'application/zip' });
+  }
+
+  function triggerBlobDownload(fileName, blob) {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
   function buildXlsxBlob(textContent) {
     const escXml = (v) => String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     const colName = (n) => { let s=''; for(;n;n=Math.floor((n-1)/26)) s=String.fromCharCode(65+(n-1)%26)+s; return s; };
@@ -603,7 +631,7 @@
     a.href = url;
     a.download = fileName;
     a.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   const EXPORT_KIND_LABELS = {
@@ -4698,12 +4726,12 @@
       label: '分项计算',
       children: [
         { page: 'scenario-analysis', label: '情景及特殊客户导入' },
-        { page: 'stress-fin-trans', label: '财务传导及逐户判定' },
+        { page: 'stress-fin-trans', label: '财务传导（含逐户违约判定）' },
         { page: 'stress-pd-lgd', label: 'PD/LGD计算' },
         { page: 'stress-npl-prov', label: '不良和拨备计算' },
       ],
     },
-    { page: 'results', label: '压测结果分析' },
+    { page: 'results', label: '测试结果分析' },
     { page: 'exports', label: '导出记录' },
     { page: 'risk-warning', label: '风险预警' },
     {
@@ -6318,11 +6346,11 @@
     return sources;
   }
 
-  function resolveResultSource() {
+  function resolveResultSource(preferJob = false) {
     const sources = buildResultSources();
     const curKey = window._resultSourceKey;
     const found = sources.find((s) => s.key === curKey);
-    const src = found || sources[0];
+    const src = found || (preferJob ? sources.find((s) => s.isJob) : null) || sources[0];
     if (!src) return { sources, src: null, res: [], taskId: null };
     const res = src.isJob
       ? (stressResultsByJob[src.id] || [])
@@ -6576,6 +6604,7 @@
             <tbody>${bodyRows}${greenRows}${overallRows}</tbody>
           </table>
         </div>
+        <div class="flow-hint" style="white-space:pre-line">${esc(tpl.footnote)}</div>
       </div>`;
   }
 
@@ -6650,6 +6679,13 @@
     '不良贷款生成率',
   ];
   const analysisExportRegistry = {};
+  const ANALYSIS_ATTACHMENT_IDS = [
+    'analysis-t1', 'analysis-adjust-industry', 'analysis-adjust-region',
+    'analysis-hc-compare', 'analysis-hc-year-trend',
+    'analysis-nonhc-npl-trend', 'analysis-c3',
+    'analysis-nonhc-gen-trend', 'analysis-c4',
+    'analysis-top10-nonhc', 'analysis-top10-hc',
+  ];
 
   function clearAnalysisExportRegistry() {
     Object.keys(analysisExportRegistry).forEach((k) => { delete analysisExportRegistry[k]; });
@@ -6665,7 +6701,7 @@
 
   function analysisMetricsExportCells(m) {
     return [
-      formatAnalysisCount(m.baselineCount),
+      formatAnalysisCount(m.baselineCustomers),
       formatAnalysisAmt(m.baselineLoan),
       formatAnalysisPct(m.baselineNplRatio),
       formatAnalysisCount(m.newDefaultCount),
@@ -6693,7 +6729,7 @@
     ].join('\n');
   }
 
-  function downloadSvgChartAsPng(svgEl, fileName, onDone) {
+  function downloadSvgChartAsPng(svgEl, fileName, onDone, skipDownload = false) {
     let source = new XMLSerializer().serializeToString(svgEl);
     if (!source.includes('xmlns="http://www.w3.org/2000/svg"')) {
       source = source.replace('<svg', '<svg xmlns="http://www.w3.org/2000/svg"');
@@ -6707,24 +6743,40 @@
       const canvas = document.createElement('canvas');
       const scale = 2;
       canvas.width = w * scale;
-      canvas.height = h * scale;
+      canvas.height = (h + 72) * scale;
       const ctx = canvas.getContext('2d');
       ctx.scale(scale, scale);
       ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, w, h);
+      ctx.fillRect(0, 0, w, h + 72);
       ctx.drawImage(img, 0, 0, w, h);
+      const panel = svgEl.closest('.analysis-panel');
+      const chartTitle = panel?.querySelector('.analysis-panel-title')?.textContent || '';
+      ctx.fillStyle = '#0f172a';
+      ctx.font = 'bold 13px sans-serif';
+      ctx.fillText(chartTitle, 12, h + 22, w - 24);
+      const legendItems = [...(panel?.querySelectorAll('.chart-legend-item') || [])];
+      ctx.font = '11px sans-serif';
+      legendItems.forEach((item, index) => {
+        const x = 12 + index * ((w - 24) / legendItems.length);
+        ctx.fillStyle = item.querySelector('i')?.style.background || '#334155';
+        ctx.fillRect(x, h + 39, 12, 3);
+        ctx.fillStyle = '#334155';
+        ctx.fillText(item.textContent.trim(), x + 16, h + 44, (w - 24) / legendItems.length - 18);
+      });
       URL.revokeObjectURL(url);
       canvas.toBlob((blob) => {
         if (!blob) {
           if (onDone) onDone(false);
           return;
         }
-        const link = document.createElement('a');
-        link.download = fileName;
-        link.href = URL.createObjectURL(blob);
-        link.click();
-        URL.revokeObjectURL(link.href);
-        if (onDone) onDone(true);
+        if (!skipDownload) {
+          const link = document.createElement('a');
+          link.download = fileName;
+          link.href = URL.createObjectURL(blob);
+          link.click();
+          setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+        }
+        if (onDone) onDone(true, blob);
       }, 'image/png');
     };
     img.onerror = () => {
@@ -6741,13 +6793,9 @@
       return;
     }
     const { src } = resolveResultSource();
-    const sourceKey = src?.key || window._resultSourceKey || '';
+    const sourceKey = currentPage === 'exports' ? (window._exportSourceKey || src?.key || '') : (src?.key || window._resultSourceKey || '');
     if (meta.type === 'table') {
-      if (!meta.rows?.length) {
-        toast('当前表格暂无数据', 'info');
-        return;
-      }
-      const downloadFileName = '客户及行业压力测试分项结果.xlsx';
+      const downloadFileName = buildExportTitleFileName(meta.title, 'xlsx');
       appendExportLog({
         sourceKey,
         scope: meta.title,
@@ -6840,7 +6888,7 @@
       return {
         companyName: rec.companyName,
         branchName: rec.branchName || credit.branchName || '-',
-        region: hc.region,
+        region: rec.province || provinceFromBranch(rec.branchName || credit.branchName) || hc.region,
         standardIndustry: rec.standardIndustry || '-',
         gbIndustryCode: rec.gbIndustryCode,
         loanBalance: credit.loanBalance ?? rec.loanBalance ?? 0,
@@ -6854,6 +6902,10 @@
         totalAssets: rec.totalAssets,
         totalLiabilities: rec.totalLiabilities,
         assetLiabilityRatio: rec.assetLiabilityRatio,
+        operatingProfit: rec.operatingProfit,
+        netProfit: rec.netProfit,
+        industryAddedValue: rec.industryAddedValue ?? rec.valueAdded,
+        carbonEmissionFactor: rec.carbonEmissionFactor ?? factors.find((f) => f.factorCode === rec.emissionFactorCode)?.factorValue,
       };
     });
   }
@@ -6903,6 +6955,7 @@
     return {
       baselineCustomers,
       baselineLoan,
+      baselineNpl,
       baselineNplRatio,
       newDefaultCount,
       newDefaultLoan,
@@ -7015,6 +7068,11 @@
         region: c.region || c.branchName,
         defaultYear: defaultYearMap.get(c.companyName),
         defaultReason: defaultReasonText(defaultResultMap.get(c.companyName) || {}),
+        assetLiabilityRatio: c.assetLiabilityRatio,
+        operatingProfit: c.operatingProfit,
+        netProfit: c.netProfit,
+        industryAddedValue: c.industryAddedValue,
+        carbonEmissionFactor: c.carbonEmissionFactor,
       }))
       .sort((a, b) => (b.loanBalance || 0) - (a.loanBalance || 0))
       .slice(0, limit);
@@ -7043,15 +7101,29 @@
       points: [...new Set((results || []).map((r) => r.testYear).filter(Boolean))].sort((a, b) => a - b)
         .map((year) => ({
           year,
-          value: computeAnalysisGroupMetrics(group.customers, results, { ...opts, analysisYear: year })[metricKey] || 0,
+          value: metricKey === 'annualNplGenerationRate'
+            ? computeAnalysisAnnualGenerationRate(group.customers, results, opts, year)
+            : (computeAnalysisGroupMetrics(group.customers, results, { ...opts, analysisYear: year })[metricKey] || 0),
         })),
     }));
+  }
+
+  function computeAnalysisAnnualGenerationRate(customers, results, opts, year) {
+    const previous = computeAnalysisGroupMetrics(customers, results, { ...opts, analysisYear: year - 1 });
+    const current = computeAnalysisGroupMetrics(customers, results, { ...opts, analysisYear: year });
+    const firstDefaultYears = buildCompanyDefaultYearMap(results, opts.scenarioCode || '');
+    const beginningNormalLoan = customers.reduce((sum, customer) => {
+      if ((customer.prevStatus || customer.loanClassification || 'NORMAL') !== 'NORMAL') return sum;
+      const firstDefaultYear = firstDefaultYears.get(customer.companyName);
+      return sum + (firstDefaultYear && firstDefaultYear < year ? 0 : (customer.loanBalance || 0));
+    }, 0);
+    return beginningNormalLoan > 0 ? (current.nplBalance - previous.nplBalance) / beginningNormalLoan : 0;
   }
 
   function renderAnalysisMultiLineChart(seriesList, opts = {}) {
     const yFormat = opts.yFormat || formatAnalysisPct;
     const allYears = [...new Set(seriesList.flatMap((s) => s.points.map((p) => p.year)))].sort((a, b) => a - b);
-    if (!allYears.length || !seriesList.length) return '<div class="empty">暂无趋势数据</div>';
+    if (!allYears.length || !seriesList.length) return `<div class="analysis-trend-chart"><svg${opts.chartDomId ? ` id="${opts.chartDomId}"` : ''} viewBox="0 0 640 240" class="chart-line-svg"><text x="320" y="120" text-anchor="middle" fill="#64748b">暂无趋势数据</text></svg></div>`;
     let yMax = 0.0001;
     seriesList.forEach((s) => s.points.forEach((p) => { yMax = Math.max(yMax, p.value || 0); }));
     const W = Math.max(640, allYears.length * 56);
@@ -7109,9 +7181,19 @@
     const defaultYearMap = buildCompanyDefaultYearMap(results, opts.scenarioCode || '');
     const eligible = tested.filter((c) => ANALYSIS_NORMAL_ATT_CLASSES.has(c.prevStatus || c.loanClassification || 'NORMAL'));
     const defaults = eligible.filter((c) => defaultYearMap.has(c.companyName));
+    const baselineDefault = customers.filter((c) => analysisIsNplClass(c.loanClassification));
     const testedLoan = tested.reduce((s,c) => s + (Number(c.loanBalance)||0), 0);
     const defaultLoan = defaults.reduce((s,c) => s + (Number(c.loanBalance)||0), 0);
-    return { testedCount: tested.length, testedLoan, defaultCount: defaults.length, defaultLoan, adjustmentRatio: testedLoan > 0 ? defaultLoan / testedLoan : 0 };
+    return {
+      baselineDefaultCount: baselineDefault.length,
+      baselineDefaultLoan: baselineDefault.reduce((s,c) => s + (Number(c.loanBalance)||0), 0),
+      testedCount: tested.length,
+      testedLoan,
+      defaultCount: defaults.length,
+      defaultLoan,
+      adjustmentRatio: testedLoan > 0 ? defaultLoan / testedLoan : null,
+      defaultCountRatio: tested.length > 0 ? defaults.length / tested.length : null,
+    };
   }
 
   function renderSimpleAnalysisTable(title, exportId, headers, rows) {
@@ -7123,7 +7205,17 @@
   function buildDefaultAdjustmentRows(groups, results, opts, labelKey) {
     return groups.map((g) => {
       const m = computeDefaultAdjustmentMetrics(g.customers, results, opts);
-      return [g[labelKey], formatAnalysisCount(m.testedCount), formatAnalysisAmt(m.testedLoan), formatAnalysisCount(m.defaultCount), formatAnalysisAmt(m.defaultLoan), formatAnalysisPct(m.adjustmentRatio)];
+      return [
+        g[labelKey],
+        formatAnalysisCount(m.baselineDefaultCount),
+        formatAnalysisAmt(m.baselineDefaultLoan),
+        formatAnalysisCount(m.defaultCount),
+        formatAnalysisAmt(m.defaultLoan),
+        formatAnalysisCount(m.testedCount),
+        formatAnalysisAmt(m.testedLoan),
+        formatAnalysisPct(m.defaultCountRatio),
+        formatAnalysisPct(m.adjustmentRatio),
+      ];
     });
   }
 
@@ -7136,27 +7228,33 @@
     const years = analysisTimelineYears(results);
     const rowFor = (name, customers) => {
       const base = computeAnalysisGroupMetrics(customers, results, opts);
-      return [name, (base.baselineLoan / 10000).toFixed(2), ...years.map((year,i) => i === 0 ? (metricKey === 'nplGenerationRate' ? '' : formatAnalysisPct(base.baselineNplRatio)) : formatAnalysisPct(computeAnalysisGroupMetrics(customers, results, {...opts, analysisYear: year})[metricKey]))];
+      return [name, (base.baselineLoan / 10000).toFixed(2), ...years.map((year,i) => i === 0
+        ? (metricKey === 'annualNplGenerationRate' ? '—' : formatAnalysisPct(base.baselineNplRatio))
+        : formatAnalysisPct(metricKey === 'annualNplGenerationRate'
+          ? computeAnalysisAnnualGenerationRate(customers, results, opts, year)
+          : computeAnalysisGroupMetrics(customers, results, {...opts, analysisYear: year})[metricKey]))];
     };
     return { years, rows: [...groups.map((g) => rowFor(g.name, g.customers)), rowFor(totalLabel, allCustomers)] };
   }
 
-  function buildHighCarbonScenarioComparison(portfolio, results) {
-    const groups = ANALYSIS_HIGH_CARBON_MAJORS.map((name) => ({ name, customers: portfolio.filter((c) => c.isHighCarbon && c.highCarbonMajor === name) }));
-    const rowFor = (name, customers) => {
+  function buildHighCarbonScenarioComparison(groups, portfolio, results, opts) {
+    const rowFor = (major, sub, customers) => {
       const base = computeAnalysisGroupMetrics(customers, results, {});
       const values = STRESS_SCENARIO_OPTIONS.flatMap((scenario) => {
-        const m = computeAnalysisGroupMetrics(customers, results, { scenarioCode: scenario.code });
-        return [formatAnalysisPct(m.nplRatio), formatAnalysisPct(m.nplRatio)];
+        return ['WITHOUT', 'WITH'].map((ccusMode) => {
+          const matched = (results || []).filter((result) => result.scenarioCode === scenario.code && result.ccusMode === ccusMode);
+          return matched.length ? formatAnalysisPct(computeAnalysisGroupMetrics(customers, matched, { ...opts, scenarioCode: scenario.code, analysisYear: 2040 }).nplRatio) : '—';
+        });
       });
-      return [name, (base.baselineLoan / 10000).toFixed(2), formatAnalysisPct(base.baselineNplRatio), ...values];
+      return [major, sub, (base.baselineLoan / 10000).toFixed(2), formatAnalysisPct(base.baselineNplRatio), ...values];
     };
     const all = portfolio.filter((c) => c.isHighCarbon);
-    return [...groups.map((g) => rowFor(g.name,g.customers)), rowFor('高碳行业小计',all)];
+    return [...groups.map((g) => rowFor(g.major, g.sub, g.customers)), rowFor('', '高碳行业小计', all)];
   }
 
   function buildResultsAnalysisContent(portfolio, results, opts) {
     clearAnalysisExportRegistry();
+    const trendOpts = { ...opts, scenarioCode: opts.scenarioCode || 'BASELINE' };
     const nonHcIndustries = buildAnalysisNonHighCarbonIndustries(portfolio);
     const top5Loan = [...nonHcIndustries].sort((a, b) =>
       computeAnalysisGroupMetrics(b.customers, results, opts).baselineLoan
@@ -7172,36 +7270,45 @@
 
     const table1Rows = buildAnalysisHighCarbonDetailRows(portfolio, results, opts);
     const table4Rows = buildAnalysisHighCarbonRegionRows(portfolio, results, opts);
-    const table5Rows = buildAnalysisTopDefaultCustomers(portfolio, results, opts, 10, true);
-    const table6Rows = buildAnalysisTopDefaultCustomers(portfolio, results, opts, 10, false);
+    const table5Rows = buildAnalysisTopDefaultCustomers(portfolio, results, trendOpts, 10, true);
+    const table6Rows = buildAnalysisTopDefaultCustomers(portfolio, results, trendOpts, 10, false);
     const highCarbonIndustryGroups = table1Rows.map((r) => ({
+      major: r.major,
+      sub: r.sub,
       name: `${r.major}${r.sub && r.sub !== r.major ? `-${r.sub}` : ''}`,
       customers: portfolio.filter((c) => c.isHighCarbon && c.highCarbonMajor === r.major && c.highCarbonSub === r.sub),
     }));
     const highCarbonRegionGroups = [...new Set(portfolio.filter((c) => c.isHighCarbon).map((c) => c.region || c.branchName || '未分类'))].map((name) => ({ name, customers: portfolio.filter((c) => c.isHighCarbon && (c.region || c.branchName || '未分类') === name) }));
 
-    const chart1Series = buildAnalysisMajorTrendSeries(portfolio, results, ANALYSIS_HIGH_CARBON_MAJORS, 'nplRatio', opts);
-    const chart2Series = buildAnalysisMajorTrendSeries(portfolio, results, ANALYSIS_HIGH_CARBON_MAJORS, 'nplGenerationRate', opts);
-    const chart3Series = buildAnalysisIndustryTrendSeries(top5Loan, results, 'nplRatio', opts);
-    const chart4Series = buildAnalysisIndustryTrendSeries(top5Loan, results, 'nplGenerationRate', opts);
-    const adjustmentHeaders = ['分类','有财务数据客户数','有财务数据客户贷款余额（万元）','预测期间新增违约客户数','预测期间新增违约贷款余额（万元）','违约调整比例'];
-    const industryAdjustmentRows = buildDefaultAdjustmentRows(highCarbonIndustryGroups, results, opts, 'name');
-    const regionAdjustmentRows = buildDefaultAdjustmentRows(highCarbonRegionGroups, results, opts, 'name').sort((a,b) => Number(String(b[2]).replace(/,/g,'')) - Number(String(a[2]).replace(/,/g,'')));
-    const comparisonHeaders = ['高碳行业','贷款余额（亿元）','基期不良率','现有政策-2040年-使用CCUS','现有政策-2040年-不使用CCUS','温室世界-2040年-使用CCUS','温室世界-2040年-不使用CCUS','有序转型-2040年-使用CCUS','有序转型-2040年-不使用CCUS'];
-    const comparisonRows = buildHighCarbonScenarioComparison(portfolio, results);
+    const chart3Series = buildAnalysisIndustryTrendSeries(top5Loan, results, 'nplRatio', trendOpts);
+    const chart4Series = buildAnalysisIndustryTrendSeries(top5Loan, results, 'annualNplGenerationRate', trendOpts);
+    const adjustmentHeaders = ['行业大类','行业名称','基期已违约客户数','基期已违约贷款余额','承压后新增违约客户数','承压后新增违约贷款余额','被测试客户数（有财务数据高碳客户）','被测试客户贷款余额','新增违约占比—客户数','新增违约占比—贷款余额'];
+    const industryAdjustmentRows = highCarbonIndustryGroups.map((g) => [g.major, g.sub, ...buildDefaultAdjustmentRows([g], results, opts, 'name')[0].slice(1)]);
+    const regionAdjustmentRows = buildDefaultAdjustmentRows(highCarbonRegionGroups, results, opts, 'name')
+      .sort((a,b) => Number(String(b[6]).replace(/,/g,'')) - Number(String(a[6]).replace(/,/g,'')))
+      .map((r,i) => [String(i+1), ...r]);
+    const comparisonHeaders = ['行业大类','行业名称','基期贷款余额（亿元）','基期不良率','基准情景（2040年）不使用CCUS不良率','基准情景（2040年）使用CCUS不良率','温室世界（2040年）不使用CCUS不良率','温室世界（2040年）使用CCUS不良率','有序转型（2040年）不使用CCUS不良率','有序转型（2040年）使用CCUS不良率'];
+    const comparisonRows = buildHighCarbonScenarioComparison(highCarbonIndustryGroups, portfolio, results, opts);
     const nonHighCarbonAll = portfolio.filter((c) => !c.isHighCarbon);
-    const nplTrend = buildIndustryTrendTable(top5Loan, nonHighCarbonAll, results, opts, 'nplRatio', '非高碳行业全部小计');
-    const generationTrend = buildIndustryTrendTable(top5Loan, nonHighCarbonAll, results, opts, 'nplGenerationRate', '非高碳行业全部小计');
-    const highCarbonTrendGroups = ANALYSIS_HIGH_CARBON_MAJORS.map((name) => ({ name, customers: portfolio.filter((c) => c.isHighCarbon && c.highCarbonMajor === name) }));
-    const highCarbonTrend = buildIndustryTrendTable(highCarbonTrendGroups, portfolio.filter((c) => c.isHighCarbon), results, opts, 'nplRatio', '高碳行业小计');
-    const trendHeaders = (years) => ['前5大非高碳行业','贷款余额（亿元）', ...years.map((y,i) => `${y}年${i===0?'(基期)':''}`)];
+    const nplTrend = buildIndustryTrendTable(top5Loan, nonHighCarbonAll, results, trendOpts, 'nplRatio', '非高碳行业全部小计');
+    const generationTrend = buildIndustryTrendTable(top5Loan, nonHighCarbonAll, results, trendOpts, 'annualNplGenerationRate', '非高碳行业全部小计');
+    const highCarbonYears = analysisTimelineYears(results);
+    const highCarbonYearRow = (major, sub, customers) => {
+      const base = computeAnalysisGroupMetrics(customers, results, trendOpts);
+      return [major, sub, (base.baselineLoan / 10000).toFixed(2), ...highCarbonYears.map((year, i) => formatAnalysisPct(i === 0 ? base.baselineNplRatio : computeAnalysisGroupMetrics(customers, results, { ...trendOpts, analysisYear: year }).nplRatio))];
+    };
+    const highCarbonYearRows = [
+      ...highCarbonIndustryGroups.map((g) => highCarbonYearRow(g.major, g.sub, g.customers)),
+      highCarbonYearRow('', '高碳行业小计', portfolio.filter((c) => c.isHighCarbon)),
+    ];
+    const trendHeaders = (years) => ['前5大非高碳行业','贷款余额（亿元，从高到低排序）', ...years.map((y,i) => `${y}年${i===0?'（基期）':''}`)];
 
-    const table1Title = '表 1：高碳行业明细统计表（行业维度 - 高碳）';
+    const table1Title = '1. 高碳行业贷款基本情况';
     registerAnalysisTableExport(
       'analysis-t1',
       table1Title,
-      ['行业名称（大类）', '子行业', ...ANALYSIS_METRIC_EXPORT_HEADERS],
-      table1Rows.map((r) => [r.major, r.sub, ...analysisMetricsExportCells(r.metrics)]),
+      ['行业大类','行业名称','客户数量（个）','贷款余额（亿元）','不良余额（亿元）','不良率','减值准备（亿元）'],
+      table1Rows.map((r) => [r.major, r.sub, formatAnalysisCount(r.metrics.baselineCustomers), (r.metrics.baselineLoan / 10000).toFixed(2), (r.metrics.baselineNpl / 10000).toFixed(2), formatAnalysisPct(r.metrics.baselineNplRatio), (r.metrics.impairmentProvision / 10000).toFixed(2)]),
     );
 
     const table2Title = '表 2：非高碳行业 - 贷款余额 TOP5 统计表（行业维度 - 非高碳）';
@@ -7271,10 +7378,10 @@
       'analysis-t1',
       table1Rows,
       {
-        head: `<tr><th>行业名称（大类）</th><th>子行业</th>${ANALYSIS_METRIC_TABLE_HEAD}</tr>`,
-        body: (r) => `<tr><td>${esc(r.major)}</td><td>${esc(r.sub)}</td>${renderAnalysisMetricCells(r.metrics)}</tr>`,
+        head: '<tr><th>行业大类</th><th>行业名称</th><th>客户数量（个）</th><th>贷款余额（亿元）</th><th>不良余额（亿元）</th><th>不良率</th><th>减值准备（亿元）</th></tr>',
+        body: (r) => `<tr><td>${esc(r.major)}</td><td>${esc(r.sub)}</td><td class="num">${formatAnalysisCount(r.metrics.baselineCustomers)}</td><td class="num">${(r.metrics.baselineLoan / 10000).toFixed(2)}</td><td class="num">${(r.metrics.baselineNpl / 10000).toFixed(2)}</td><td class="num">${formatAnalysisPct(r.metrics.baselineNplRatio)}</td><td class="num">${(r.metrics.impairmentProvision / 10000).toFixed(2)}</td></tr>`,
       },
-      11,
+      7,
     );
 
     const table2 = renderAnalysisMetricTablePanel(
@@ -7331,59 +7438,201 @@
       6,
     );
 
-    const charts = [
-      renderAnalysisTrendPanel(
-        '图 1：8 大高碳行业不良贷款率趋势图',
-        chart1Series,
-        formatAnalysisPct,
-        'analysis-c1',
-      ),
-      renderAnalysisTrendPanel(
-        '图 2：8 大高碳行业不良贷款生成率趋势图',
-        chart2Series,
-        formatAnalysisPct,
-        'analysis-c2',
-      ),
-      renderAnalysisTrendPanel(
-        '图 3：非高碳行业贷款余额 TOP5 行业不良贷款率趋势图',
-        chart3Series,
-        formatAnalysisPct,
-        'analysis-c3',
-      ),
-      renderAnalysisTrendPanel(
-        '图 4：非高碳行业贷款余额 TOP5 行业不良贷款生成率趋势图',
-        chart4Series,
-        formatAnalysisPct,
-        'analysis-c4',
-      ),
-    ].join('');
-
+    const baselineAmount = (value) => value == null || value === '' ? '—' : formatAnalysisAmt(value);
+    const customerRows = (rows, includeCarbonFactor) => rows.map((row) => [
+      row.companyName,
+      baselineAmount(row.loanBalance),
+      row.industry || '—',
+      row.defaultYear ? `${row.defaultYear}年` : '—',
+      row.defaultReason || '—',
+      row.assetLiabilityRatio == null ? '—' : formatAnalysisPct(Number(row.assetLiabilityRatio)),
+      baselineAmount(row.operatingProfit),
+      baselineAmount(row.netProfit),
+      baselineAmount(row.industryAddedValue),
+      ...(includeCarbonFactor ? [row.carbonEmissionFactor == null ? '—' : String(row.carbonEmissionFactor)] : []),
+    ]);
+    const topDefaultHeaders = ['客户名称','基期贷款余额','行业名称','违约年份','违约原因','基期资产负债率','基期营业利润','基期净利润','行业增加值'];
     const requestedTables = [
-      renderSimpleAnalysisTable('高碳客户违约调整行业分布表','analysis-adjust-industry',adjustmentHeaders,industryAdjustmentRows),
-      renderSimpleAnalysisTable('高碳客户违约调整区域分布表','analysis-adjust-region',['地区（省/自治区/直辖市）',...adjustmentHeaders.slice(1)],regionAdjustmentRows),
-      renderSimpleAnalysisTable('高碳客户不良贷款率变动情况（情景×CCUS对比）','analysis-hc-compare',comparisonHeaders,comparisonRows),
-      renderSimpleAnalysisTable('高碳客户不良贷款率变动情况（年度趋势表）','analysis-hc-year-trend',['高碳行业','贷款余额（亿元）',...highCarbonTrend.years.map((y,i) => `${y}年${i===0?'(基期)':''}`)],highCarbonTrend.rows),
-      renderSimpleAnalysisTable('前5大非高碳行业不良贷款率变动表','analysis-nonhc-npl-trend',trendHeaders(nplTrend.years),nplTrend.rows),
-      renderSimpleAnalysisTable('前5大非高碳行业不良贷款生成率变动表','analysis-nonhc-gen-trend',trendHeaders(generationTrend.years),generationTrend.rows),
+      renderSimpleAnalysisTable('2. 高碳客户违约调整行业分布表','analysis-adjust-industry',adjustmentHeaders,industryAdjustmentRows),
+      renderSimpleAnalysisTable('3. 高碳客户违约调整区域分布表','analysis-adjust-region',['排序','所在地区',...adjustmentHeaders.slice(2)],regionAdjustmentRows),
+      renderSimpleAnalysisTable('4. 高碳客户不良贷款率变动情况：情景对比表','analysis-hc-compare',comparisonHeaders,comparisonRows),
+      renderSimpleAnalysisTable('4. 高碳客户不良贷款率变动情况：年度变化表','analysis-hc-year-trend',['行业大类','行业名称','贷款余额（亿元，从高到低排序）',...highCarbonYears.map((y,i) => `${y}年${i===0?'（基期）':''}不良贷款率`)],highCarbonYearRows),
+      renderSimpleAnalysisTable('5. 前5大非高碳行业不良贷款率变动情况：表格','analysis-nonhc-npl-trend',trendHeaders(nplTrend.years),nplTrend.rows),
+      renderAnalysisTrendPanel('5. 前5大非高碳行业不良贷款率变动情况：折线图（%）',chart3Series,formatAnalysisPct,'analysis-c3'),
+      renderSimpleAnalysisTable('6. 前5大非高碳行业不良贷款生成率变动情况：表格','analysis-nonhc-gen-trend',trendHeaders(generationTrend.years),generationTrend.rows),
+      renderAnalysisTrendPanel('6. 前5大非高碳行业不良贷款生成率变动情况：折线图（%）',chart4Series,formatAnalysisPct,'analysis-c4'),
+      '<p class="v11-rule-note">不良贷款生成率＝（期末不良贷款－期初不良贷款）／期初正常类贷款。</p>',
+      renderSimpleAnalysisTable('7. 前10大新增违约客户（非高碳行业）','analysis-top10-nonhc',topDefaultHeaders,customerRows(table6Rows,false)),
+      renderSimpleAnalysisTable('8. 前10大新增违约客户（高碳行业）','analysis-top10-hc',[...topDefaultHeaders,'碳排放因子'],customerRows(table5Rows,true)),
     ].join('');
 
     return `
       <div class="analysis-section analysis-section--tables">
-        ${table1}${requestedTables}${table5}${table6}
+        ${table1}${requestedTables}
       </div>
-      <div class="analysis-section analysis-section--charts">
-        ${charts}
-      </div>`;
+    `;
+  }
+
+  const ITEM_RESULT_SHEETS = [
+    { key: 'customer-without', label: '客户压力测试分项结果—不用CCUS', kind: 'customer', ccus: false },
+    { key: 'customer-with', label: '客户压力测试分项结果—使用CCUS', kind: 'customer', ccus: true },
+    { key: 'industry-without', label: '行业压力测试分项结果—不用CCUS', kind: 'industry', ccus: false },
+    { key: 'industry-with', label: '行业压力测试分项结果—使用CCUS', kind: 'industry', ccus: true },
+  ];
+  const ITEM_CUSTOMER_HEADERS = [
+    '情景', '是否为高碳客户', '信贷客户编号', '核心账号', '地区（省/自治区/直辖市）', '所在分行', '年份',
+    '评级模型代码', '评级模型名称', '行业小类（客户）', '行业小类（投向）', '所属行业', '是否有财报',
+    '是否违约', '业务余额（折人民币）', '五级分类', '拨备计提金额（折人民币）', 'PDt', 'LGDt',
+  ];
+  const ITEM_INDUSTRY_HEADERS = [
+    '情景', '所属行业', '是否为高碳行业', '年份', '业务余额（折人民币）', '客户数量',
+    '当年新增违约客户数', '不良贷款余额', '当年新增不良贷款', '拨备计提金额（折人民币）',
+    '当年新提取的贷款损失准备（折人民币）', '不良贷款率', '不良贷款生成率', '加权平均PDt', '加权平均LGDt',
+  ];
+
+  function itemResultForCcusMode(src, taskId, results, useCcus) {
+    if (useCcus) return results;
+    const job = src?.isJob ? getStressJob(src.id) : null;
+    const carbon = window.CRST_CARBON;
+    if (!job || !carbon) return [];
+    const recMap = Object.fromEntries(entityRecords(src.id, job).map((r) => [r.companyName, r]));
+    const eclMap = Object.fromEntries(entityEcls(src.id, job).map((e) => [e.companyName, e]));
+    const factorLibrary = getEnabledEmissionFactors();
+    return results.map((r) => {
+      const rec = recMap[r.companyName];
+      if (!rec) return r;
+      const p = getScenarioStressParams(job, r.scenarioCode);
+      const enriched = { ...rec, eclAmount: eclMap[r.companyName]?.eclAmount ?? rec.eclAmount,
+        costIncomeRatio: rec.costIncomeRatio ?? p.costIncomeRatio,
+        assetLiabilityRatio: rec.assetLiabilityRatio ?? p.assetLiabilityRatio,
+        baseNetProfitPositive: p.baseNetProfitPositive };
+      const raw = carbon.runCompanyStress(enriched, r.scenarioCode, {
+        ...stressCalcOptions(p, r.testYear), factorLibrary, useCcus: false,
+      });
+      const out = enrichStressResult(applyScenarioAdjustment(raw, r.scenarioCode, p), enriched, p);
+      return { ...r, carbonCost: out.carbonCost, impactRate: out.impactRate,
+        netProfitAfter: out.netProfitAfter, defaultFlag: rec.specialCustomer ? false : out.defaultFlag,
+        assetLiabilityRatioAfter: out.assetLiabilityRatioAfter };
+    });
+  }
+
+  function buildItemCustomerData(src, taskId, results, scenarioFilter) {
+    const entity = src?.isJob ? getStressJob(src.id) : (taskId ? getTask(taskId) : null);
+    const id = src?.isJob ? src.id : taskId;
+    if (!entity) return [];
+    const recs = entityRecords(id, entity).filter((r) => r.dataAvailability !== 'ABNORMAL' && !r.excluded && r.standardIndustry);
+    const credits = Object.fromEntries(entityCredits(id, entity).map((c) => [c.companyName, c]));
+    const ecls = Object.fromEntries(entityEcls(id, entity).map((e) => [e.companyName, e]));
+    const filtered = results.filter((r) => !scenarioFilter || r.scenarioCode === scenarioFilter);
+    const scenarioCodes = [...new Set(filtered.map((r) => r.scenarioCode))];
+    const years = [...new Set(filtered.map((r) => Number(r.testYear)).filter(Boolean))].sort((a, b) => a - b);
+    const resultMap = new Map(filtered.map((r) => [`${r.scenarioCode}::${r.testYear}::${r.companyName}`, r]));
+    const firstDefaults = new Map();
+    filtered.forEach((r) => {
+      if (!r.defaultFlag) return;
+      const key = `${r.scenarioCode}::${r.companyName}`;
+      firstDefaults.set(key, Math.min(firstDefaults.get(key) ?? Infinity, Number(r.testYear)));
+    });
+    const data = [];
+    scenarioCodes.forEach((code) => {
+      const periods = [years[0] - 1, ...years];
+      periods.forEach((year, index) => {
+        recs.forEach((rec) => {
+          const isBase = index === 0;
+          const r = isBase ? null : resultMap.get(`${code}::${year}::${rec.companyName}`);
+          const credit = credits[rec.companyName] || {};
+          const ecl = ecls[rec.companyName] || {};
+          const loan = Number(credit.loanBalance ?? rec.loanBalance ?? 0);
+          const baseClass = analysisLoanClass(rec);
+          const firstDefault = firstDefaults.get(`${code}::${rec.companyName}`);
+          const defaulted = !isBase && !rec.specialCustomer && !rec.reportMissing && firstDefault != null && year >= firstDefault;
+          const basePd = Number(rec.pdTtc ?? rec.pdValue ?? rec.pdEclT0 ?? ecl.pd ?? 0);
+          const lgd = Number(rec.lgdT0 ?? ecl.lgd ?? 0);
+          const pd = isBase || rec.specialCustomer ? basePd : (defaulted ? 1 : mockAdjustedPd(basePd, r?.impactRate ?? 0));
+          const provision = isBase || rec.specialCustomer
+            ? Number(rec.provisionAmount ?? rec.impairmentProvision ?? 0)
+            : Math.round(loan * pd * lgd);
+          const industry = rec.standardIndustry;
+          const highCarbon = !!window.CRST_CARBON?.isHighCarbonIndustry?.(industry, rec.gbIndustryCode);
+          const period = isBase ? '基期' : `测试期${index}`;
+          const isNpl = analysisIsNplClass(baseClass) || defaulted;
+          data.push({ scenarioCode: code, scenario: scenarioLabel(code), industry, highCarbon, year, period,
+            customerKey: String(rec.customerId || rec.companyName), loan, pd, lgd, provision,
+            isNpl, baseNpl: analysisIsNplClass(baseClass), newDefault: !isBase && firstDefault === year && !rec.specialCustomer,
+            cells: [scenarioLabel(code), highCarbon ? '是' : '否', rec.customerId || credit.customerId || '—',
+              rec.coreAccountNo || credit.coreAccountNo || '—', rec.province || provinceFromBranch(rec.branchName) || '—',
+              rec.branchName || credit.branchName || '—', period, rec.ratingModelCode || '—', rec.ratingModelName || '—',
+              rec.industrySubCustomer || '—', rec.industrySubInvest || '—', industry,
+              rec.reportMissing ? '否' : '是', defaulted ? '是' : '否', loan.toFixed(2),
+              defaulted ? '不良' : loanClassLabel(baseClass), provision.toFixed(2), pd.toFixed(4), lgd.toFixed(4)] });
+        });
+      });
+    });
+    return data;
+  }
+
+  function buildItemIndustryRows(customerData) {
+    const groups = new Map();
+    customerData.forEach((r) => {
+      const key = `${r.scenarioCode}::${r.industry}::${r.year}`;
+      if (!groups.has(key)) groups.set(key, { scenarioCode: r.scenarioCode, scenario: r.scenario,
+        industry: r.industry, highCarbon: r.highCarbon, year: r.year, period: r.period, customers: [] });
+      groups.get(key).customers.push(r);
+    });
+    const ordered = [...groups.values()].sort((a, b) => a.scenarioCode.localeCompare(b.scenarioCode)
+      || a.industry.localeCompare(b.industry, 'zh-CN') || a.year - b.year);
+    const byKey = new Map(ordered.map((g) => [`${g.scenarioCode}::${g.industry}::${g.year}`, g]));
+    return ordered.map((g) => {
+      const sumLoan = (predicate) => g.customers.filter(predicate).reduce((sum, r) => sum + r.loan, 0);
+      const loan = sumLoan(() => true);
+      const npl = sumLoan((r) => r.isNpl);
+      const newNpl = sumLoan((r) => r.newDefault && !r.baseNpl);
+      const provision = g.customers.reduce((sum, r) => sum + r.provision, 0);
+      const prev = byKey.get(`${g.scenarioCode}::${g.industry}::${g.year - 1}`);
+      const prevNpl = prev?.customers.reduce((sum, r) => sum + (r.isNpl ? r.loan : 0), 0);
+      const prevNormal = prev?.customers.reduce((sum, r) => sum + (!r.isNpl && !r.baseNpl ? r.loan : 0), 0);
+      const prevProvision = prev?.customers.reduce((sum, r) => sum + r.provision, 0);
+      const weighted = (field) => loan ? g.customers.reduce((sum, r) => sum + r[field] * r.loan, 0) / loan : 0;
+      return [g.scenario, g.industry, g.highCarbon ? '是' : '否', g.period, loan.toFixed(2),
+        new Set(g.customers.map((r) => r.customerKey)).size,
+        new Set(g.customers.filter((r) => r.newDefault).map((r) => r.customerKey)).size,
+        npl.toFixed(2), newNpl.toFixed(2), provision.toFixed(2),
+        prevProvision == null ? '—' : (provision - prevProvision).toFixed(2),
+        loan ? `${(npl / loan * 100).toFixed(2)}%` : '—',
+        prevNpl == null || !prevNormal ? '—' : `${((npl - prevNpl) / prevNormal * 100).toFixed(2)}%`,
+        weighted('pd').toFixed(4), weighted('lgd').toFixed(4)];
+    });
+  }
+
+  function renderItemResultMenu(src, taskId, results, scenarioFilter) {
+    const active = ITEM_RESULT_SHEETS.find((s) => s.key === window._itemResultSheet) || ITEM_RESULT_SHEETS[0];
+    const modeResults = itemResultForCcusMode(src, taskId, results, active.ccus);
+    const customerData = buildItemCustomerData(src, taskId, modeResults, scenarioFilter);
+    const headers = active.kind === 'customer' ? ITEM_CUSTOMER_HEADERS : ITEM_INDUSTRY_HEADERS;
+    const rows = active.kind === 'customer' ? customerData.map((r) => r.cells) : buildItemIndustryRows(customerData);
+    clearAnalysisExportRegistry();
+    registerAnalysisTableExport('item-result-sheet', active.label, headers, rows);
+    const pagerKey = `item-result-${active.key}`;
+    if (!listPagers[pagerKey]) listPagers[pagerKey] = { page: 1, size: 50 };
+    const table = renderPagedTable(
+      pagerKey,
+      rows,
+      `<tr>${headers.map((h) => `<th>${esc(h)}</th>`).join('')}</tr>`,
+      (row) => `<tr>${row.map((cell) => `<td>${esc(String(cell ?? ''))}</td>`).join('')}</tr>`,
+      headers.length,
+      'analysis-metric-table-scroll'
+    );
+    return `<div class="module-subnav">${ITEM_RESULT_SHEETS.map((sheet) => `<button type="button" class="module-subnav-btn ${active.key === sheet.key ? 'active' : ''}" onclick="CRST_APP.setItemResultSheet('${sheet.key}')">${sheet.label}</button>`).join('')}</div>
+      <div class="analysis-panel analysis-panel--metric-table"><div class="analysis-panel-hd"><h3 class="analysis-panel-title">${active.label}</h3>${rows.length ? renderAnalysisExportActions('item-result-sheet', 'table') : ''}</div>
+      ${table}</div>`;
   }
 
   function renderResults(mode = 'analysis') {
-    const { sources, src, res, taskId } = resolveResultSource();
+    const { sources, src, res, taskId } = resolveResultSource(mode === 'item');
     const filteredRes = filterAnalysisResults(res, null, '');
     const defaultMonitorCustomers = collectRiskWarningsFromResults(filteredRes);
     const srcKey = src?.key || '';
     const canExport = src && canExportSourceKey(srcKey);
-    const reportTask = taskId ? getTask(taskId) : null;
-    const canAppReport = reportTask && !src?.isJob && canUseApplicationReport(reportTask);
     const canPushWarning = !!(taskId || src?.sourceTaskId) && defaultMonitorCustomers.length > 0;
     const pushWarningTaskId = taskId || src?.sourceTaskId;
     const portfolio = src ? buildResultsAnalysisPortfolio(src, taskId) : [];
@@ -7391,9 +7640,11 @@
       scenarioCode: window._resultScenarioCode || '',
       analysisYear: null,
     };
-    const analysisContent = res.length && portfolio.length
-      ? buildResultsAnalysisContent(portfolio, res, analysisOpts)
-      : (res.length ? '<div class="empty" style="padding:24px 0">暂无可用客户样本，无法生成统计分析表。</div>' : '');
+    const analysisContent = mode === 'item'
+      ? renderItemResultMenu(src, taskId, res, analysisOpts.scenarioCode)
+      : (res.length && portfolio.length
+        ? buildResultsAnalysisContent(portfolio, res, analysisOpts)
+        : (res.length ? '<div class="empty" style="padding:24px 0">暂无可用客户样本，无法生成统计分析表。</div>' : ''));
     const resultJob = src?.isJob ? getStressJob(src.id) : null;
     const summaryCodes = resultJob?.selectedScenarioCodes?.length ? resultJob.selectedScenarioCodes : [...new Set(res.map((r) => r.scenarioCode).filter(Boolean))];
     const summaryContent = summaryCodes.map((code) => renderStressSummaryRegulatoryTable(code, res.filter((r) => r.scenarioCode === code), {
@@ -7402,22 +7653,23 @@
       exportHandler: resultJob ? `CRST_APP.exportNplProvSummaryTable('${code}')` : '',
     })).join('');
 
-    const pageTitle = mode === 'item' ? '客户及行业压力测试分项结果' : mode === 'summary' ? '压力测试结果汇总表' : '压测结果分析';
-    const analysisSection = mode === 'summary' ? '' : `<section class="result-section"><div class="result-section-hd"><h3 class="result-section-title">${mode === 'item' ? '客户及行业压力测试分项结果' : '测试结果分析'}</h3></div>${analysisContent}</section>`;
-    const summarySection = mode === 'summary' ? `<section class="result-section"><div class="result-section-hd"><h3 class="result-section-title">压力测试结果汇总表</h3></div>${summaryContent || '<div class="empty">暂无压力测试结果汇总数据</div>'}</section>` : '';
-    const monitorSection = mode === 'analysis' ? `<div class="analysis-panel analysis-panel--default-monitor" style="margin-top:20px"><div class="analysis-panel-hd"><h3 class="analysis-panel-title">违约客户监控 — 行业新增不良/违约户</h3><div class="analysis-panel-actions">${defaultMonitorCustomers.length ? `<button type="button" class="btn btn-default" onclick="CRST_APP.exportDefaultMonitorData()">导出数据</button>` : ''}${canPushWarning ? `<button type="button" class="btn btn-primary" onclick="CRST_APP.oneClickIssueResultRiskWarnings(${pushWarningTaskId})">一键下发预警</button>` : ''}</div></div>${renderDefaultMonitorChart(defaultMonitorCustomers)}</div>` : '';
+    const pageTitle = mode === 'item' ? '客户及行业压力测试分项结果' : mode === 'summary' ? '压力测试结果汇总表' : '测试结果分析';
+    const analysisSection = mode === 'summary' ? '' : mode === 'item'
+      ? `<section class="result-section">${analysisContent}</section>`
+      : `<section class="result-section">${analysisContent}</section>`;
+    const summarySection = mode === 'summary' ? `<section class="result-section">${summaryContent || '<div class="empty">暂无压力测试结果汇总数据</div>'}</section>` : '';
+    const monitorSection = '';
     const analysisFilterBar = mode === 'summary' ? '' : `<div class="filter-bar analysis-view-filter"><label>情景</label><select class="select" onchange="CRST_APP.setResultScenario(this.value)"><option value="">全部情景</option>${STRESS_SCENARIO_OPTIONS.map((s) => `<option value="${s.code}" ${analysisOpts.scenarioCode===s.code?'selected':''}>${s.label}</option>`).join('')}</select><label>CCUS</label><select class="select" onchange="CRST_APP.setResultCcusMode(this.value)"><option value="" ${!window._resultCcusMode?'selected':''}>全部</option><option value="WITH" ${window._resultCcusMode==='WITH'?'selected':''}>使用CCUS</option><option value="WITHOUT" ${window._resultCcusMode==='WITHOUT'?'selected':''}>不使用CCUS</option></select></div>`;
 
     return `
       <div class="card">
-        <div class="toolbar"><h2 class="page-title">${pageTitle}</h2><span class="tag tag-info">客户/行业 × CCUS 四类结果</span></div>
-        <div class="v11-rule-note">结果按客户明细、行业汇总分别提供“使用CCUS”和“不使用CCUS”视图，并生成中国人民银行口径汇总表；所有下载均生成真实 Excel/PNG 文件。</div>
+        <div class="toolbar"><h2 class="page-title">${pageTitle}</h2></div>
         ${renderStressResultJobFilterBar({
           sources,
           srcKey,
           onChange: 'CRST_APP.setResultSource(this.value)',
           emptyLabel: '暂无已完成结果',
-          extraHtml: canAppReport ? `<button type="button" class="btn btn-primary" onclick="CRST_APP.goToApplicationReport(${taskId})">应用报送</button>` : '',
+          extraHtml: '',
         })}
         ${analysisFilterBar}
 
@@ -7617,6 +7869,74 @@
     render();
   }
 
+  function getAnalysisAttachmentSource(sourceKey) {
+    const src = buildResultSources().find((item) => item.key === sourceKey);
+    if (!src) return null;
+    const results = src.isJob ? (stressResultsByJob[src.id] || []) : (resultsByTask[src.id] || []);
+    const taskId = src.isJob ? src.sourceTaskId : src.id;
+    const portfolio = buildResultsAnalysisPortfolio(src, taskId);
+    return results.length && portfolio.length ? { src, results, portfolio } : null;
+  }
+
+  function mountAnalysisAttachmentSource(sourceKey, scenarioCode = '') {
+    const data = getAnalysisAttachmentSource(sourceKey);
+    if (!data) return null;
+    const savedRegistry = { ...analysisExportRegistry };
+    const markup = buildResultsAnalysisContent(data.portfolio, data.results, { scenarioCode, analysisYear: null });
+    const registry = { ...analysisExportRegistry };
+    clearAnalysisExportRegistry();
+    Object.assign(analysisExportRegistry, savedRegistry);
+    const host = document.createElement('div');
+    host.style.cssText = 'position:fixed;left:-100000px;top:0;width:1200px;pointer-events:none';
+    host.setAttribute('aria-hidden', 'true');
+    host.innerHTML = markup;
+    document.body.appendChild(host);
+    return { host, registry };
+  }
+
+  async function exportAllAnalysisAttachments(sourceKey = window._exportSourceKey, recordLog = true, fileNameOverride = '', scenarioCode = '') {
+    const mounted = mountAnalysisAttachmentSource(sourceKey, scenarioCode);
+    if (!mounted) { toast('当前任务暂无可导出的附件', 'info'); return; }
+    try {
+      const entries = [];
+      for (const id of ANALYSIS_ATTACHMENT_IDS) {
+        const meta = mounted.registry[id];
+        if (!meta) throw new Error(`缺少附件：${id}`);
+        const ext = meta.type === 'chart' ? 'png' : 'xlsx';
+        const name = buildExportTitleFileName(meta.title, ext);
+        let blob;
+        if (meta.type === 'chart') {
+          const svg = mounted.host.querySelector(`#${meta.chartDomId}`);
+          if (!svg) throw new Error(`缺少图表：${meta.title}`);
+          blob = await new Promise((resolve) => downloadSvgChartAsPng(svg, name, (ok, result) => resolve(ok ? result : null), true));
+          if (!blob) throw new Error(`图表生成失败：${meta.title}`);
+        } else {
+          blob = buildXlsxBlob(buildAnalysisTableExportText(meta));
+        }
+        entries.push([name, blob]);
+      }
+      const zip = await zipBinaryFiles(entries);
+      const fileName = fileNameOverride || buildExportTitleFileName('测试结果分析全部附件', 'zip');
+      triggerBlobDownload(fileName, zip);
+      if (recordLog) appendExportLog({
+        sourceKey,
+        scope: '测试结果分析全部附件',
+        fields: '9张表格、2张图表',
+        sourceType: 'RESULTS',
+        exportKind: 'ANALYSIS_BUNDLE',
+        exportType: '附件包',
+        fileFormat: 'ZIP',
+        filterSnapshot: { context: 'analysisBundle', scenarioCode },
+        downloadFileName: fileName,
+      });
+      toast('全部附件已导出');
+    } catch (error) {
+      toast(error.message || '附件导出失败', 'error');
+    } finally {
+      mounted.host.remove();
+    }
+  }
+
   function renderExports() {
     const filtered = filterExportList();
     const moduleOpts = EXPORT_MODULE_OPTIONS.map((name) =>
@@ -7639,7 +7959,6 @@
     return `
       <div class="card">
         <div class="toolbar"><h2 class="page-title">数据导出</h2></div>
-        <div class="v11-rule-note">支持导出客户/行业四类压测结果、中国人民银行汇总表、违约调整表及风险预警清单。文件生成、校验和下载状态全程留痕。</div>
         <div class="filter-bar export-filter-bar">
           <select class="select" id="ef_module">
             <option value="">全部模块</option>
@@ -9283,9 +9602,6 @@
           <div class="empty fin-trans-empty">暂无不良和拨备计算结果。请先在「分项计算」依次完成财务传导和PD/LGD计算。</div>
         </div>`;
     }
-    const tables = job
-      ? renderNplProvSummaryTables(job, '')
-      : '';
     return `
       <div class="card">
         <div class="toolbar"><h2 class="page-title">不良和拨备计算</h2></div>
@@ -9293,7 +9609,6 @@
         <div class="v11-rule-note">不良贷款生成率_t =（当年末不良贷款余额 − 上年末不良贷款余额）/ 当年期初正常类贷款余额 × 100%。按行业、子行业、情景和年份展示；基准年不计算生成率。</div>
         ${job ? renderNplGenerationYearlyTable(job, state.data, { tableId: `npl-generation-results-${job.id}` }) : ''}
         ${job ? renderNplProvYearlyTable(job, state.data, { tableId: `npl-prov-results-${job.id}` }) : ''}
-        ${tables || '<div class="empty" style="padding:24px 0">当前筛选下暂无不良和拨备汇总数据</div>'}
       </div>`;
   }
 
@@ -11811,6 +12126,32 @@
     const e = exportLogs.find((x) => x.id === id);
     if (!e) { toast('导出记录不存在', 'error'); return; }
     const fileName = getExportDownloadFileName(e);
+    if (e.exportKind === 'ANALYSIS_BUNDLE') {
+      exportAllAnalysisAttachments(e.sourceKey, false, fileName, e.filterSnapshot?.scenarioCode || '');
+      return;
+    }
+    if (['analysisTable', 'analysisChart'].includes(e.filterSnapshot?.context)) {
+      const mounted = mountAnalysisAttachmentSource(e.sourceKey, e.filterSnapshot?.scenarioCode || '');
+      const item = mounted?.registry[e.filterSnapshot.exportId];
+      if (!item) {
+        mounted?.host.remove();
+        toast('原任务附件不可用', 'error');
+        return;
+      }
+      if (item.type === 'chart') {
+        const svg = mounted.host.querySelector(`#${item.chartDomId}`);
+        if (!svg) { mounted.host.remove(); toast('原图表不可用', 'error'); return; }
+        downloadSvgChartAsPng(svg, fileName, (ok) => {
+          mounted.host.remove();
+          toast(ok ? `已开始下载：${fileName}` : '图表导出失败', ok ? 'success' : 'error');
+        });
+      } else {
+        triggerBlobDownload(fileName, buildXlsxBlob(buildAnalysisTableExportText(item)));
+        mounted.host.remove();
+        toast(`已开始下载：${fileName}`);
+      }
+      return;
+    }
     triggerExportFileDownload(fileName, buildExportFileContent(e));
     toast(`已开始下载：${fileName}`);
   }
@@ -11891,12 +12232,15 @@
     },
     setDetailTab: (tab) => { detailStep = resolveDetailStep(tab) ?? 0; render(); },
     searchTasks, resetTaskFilters, searchExports, resetExportFilters, setListPage, setListPageSize,
+    setExportSource: (key) => { window._exportSourceKey = key; render(); },
+    exportAllAnalysisAttachments,
     setResultTask: (id) => { window._resultSourceKey = `task-${id}`; window._resultTaskId = id; getListPager('results').page = 1; render(); },
     setResultSource: (key) => { window._resultSourceKey = key; window._resultYear = ''; window._resultScenarioCode = ''; getListPager('results').page = 1; render(); },
     setResultDim: (d) => { window._resultDim = d; getListPager('results').page = 1; render(); },
     setResultYear: (y) => { window._resultYear = y === '' ? '' : y; getListPager('results').page = 1; render(); },
     setResultScenario: (c) => { window._resultScenarioCode = c || ''; getListPager('results').page = 1; render(); },
     setResultCcusMode: (c) => { window._resultCcusMode = c || ''; getListPager('results').page = 1; render(); },
+    setItemResultSheet: (key) => { if (ITEM_RESULT_SHEETS.some((s) => s.key === key)) { window._itemResultSheet = key; render(); } },
     setFinTransJob: (key) => { window._finTransJobKey = key; getListPager('fin-trans-alr-view').page = 1; render(); },
     setFinTransYear: (y) => { window._finTransYear = y === '' ? '' : y; getListPager('fin-trans-alr-view').page = 1; render(); },
     setFinTransScenario: (c) => { window._finTransScenarioCode = c || ''; getListPager('fin-trans-alr-view').page = 1; render(); },
