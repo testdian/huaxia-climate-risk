@@ -33,13 +33,12 @@
   let pendingCreateStressJob = null;
   let createStressJobFromPage = 'scenario-analysis';
   const STRESS_IMPORT_FILE_SPECS = [
-    { key: 'customerBasic', label: '高碳行业客户基础信息表', fileName: '高碳行业客户基础信息表.xlsx' },
-    { key: 'industryLoan', label: '分行业贷款信息表', fileName: '分行业贷款信息表.xlsx' },
-    { key: 'internalPd', label: '无财务数据客户内部PD和LGD表', fileName: '无财务数据客户内部PD和LGD表.xlsx' },
-    { key: 'bankBasic', label: '参试银行基础信息表', fileName: '参试银行基础信息表.xlsx' },
-    { key: 'bankCapital', label: '参试银行资本与拨备监管指标表', fileName: '参试银行资本与拨备监管指标表.xlsx' },
+    { key: 'customerBasic', label: '参试客户基础信息表', fileName: '参试客户基础信息表.xlsx' },
+    { key: 'customerFinancial', label: '参试客户基期财务数据表', fileName: '参试客户基期财务数据表.xlsx' },
+    { key: 'bankBasicExternal', label: '华夏银行基础数据采集表（外报）', fileName: '华夏银行基础数据采集表（外报）.xlsx' },
   ];
   let stressImportFiles = {};
+  let stressImportValidation = {};
   /** 财务传导结果：jobId -> { scenarioCode, years, rows } */
   let stressFinTransByJob = {};
   const stressJobFilters = { name: '', status: '', sourceTaskId: '', periodStart: '', periodEnd: '' };
@@ -90,7 +89,7 @@
     EXCLUDED: '已排除',
     EXCLUDED_NO_REPORT: '已排除逐户判定',
   };
-  const LOAN_REGION_LABELS = { DOMESTIC: '境内（含香港）', OVERSEAS: '境外', BOTH: '境内外' };
+  const LOAN_REGION_LABELS = { DOMESTIC: '境内', OVERSEAS: '境外', BOTH: '境内外' };
   const BAD_LOAN_CLASSES = new Set(['SUBSTANDARD', 'DOUBTFUL', 'LOSS']);
   let modalState = null;
   let pendingDataProcessImportTaskId = null;
@@ -110,10 +109,11 @@
   let taskLogDrawerOpen = false;
   /** 基本信息 — 涉及行业级联选择状态 */
   let industryPickerState = null;
+  let factorScopeFilter = 'INDUSTRY';
 
   let airportThroughputRows = [
-    { id: 1, airportName: '华南机场运营有限公司', airportCode: 'CAN', year: 2024, passengerThroughput: 6350, cargoThroughput: 205, source: '机场运营数据接口', status: 'ENABLED', updatedAt: '2025-06-04' },
-    { id: 2, airportName: '华东枢纽机场股份', airportCode: 'SHA', year: 2024, passengerThroughput: 4720, cargoThroughput: 168, source: '手工维护', status: 'ENABLED', updatedAt: '2025-06-04' },
+    { id: 1, airportName: '华南机场运营有限公司', airportCode: 'CAN', year: 2024, passengerThroughput: 6350, source: '机场运营数据接口', status: 'ENABLED', updatedAt: '2025-06-04' },
+    { id: 2, airportName: '华东枢纽机场股份', airportCode: 'SHA', year: 2024, passengerThroughput: 4720, source: '手工维护', status: 'ENABLED', updatedAt: '2025-06-04' },
   ];
   let nextAirportThroughputId = 10;
   let airportThroughputEditId = null;
@@ -506,10 +506,13 @@
     { key: 'coreTier1Capital', label: '核心一级资本净额（万元）' },
     { key: 'tier1Capital', label: '一级资本净额（万元）' },
     { key: 'totalCapital', label: '资本净额（万元）' },
-    { key: 'rwaTotal', label: '应用资本底线及校准后的风险加权资产合计（万元）' },
     { key: 'addCapitalReq', label: '附加资本要求（%）', isPct: true },
     { key: 'provisionRatioReq', label: '贷款拨备率监管要求（%）', isPct: true },
     { key: 'coverageRatioReq', label: '拨备覆盖率监管要求（%）', isPct: true },
+  ];
+  const BANK_REPORT_MANUAL_ROWS = [
+    { key: 'rwaTotal', label: '风险加权资产（万元）' },
+    { key: 'capitalAdequacyRatio', label: '资本充足率（%）', isPct: true },
   ];
 
   function canExportTaskResults(t) {
@@ -1439,6 +1442,22 @@
     return window.CRST_INDUSTRY_SELECTOR;
   }
 
+  const SAMPLE_FILTER_LABELS = {
+    YES: '高碳行业',
+    NO: '非高碳行业',
+    CUSTOM: '自定义',
+  };
+
+  function normalizeSampleFilterMode(value, fallback = 'YES') {
+    if (value === 'YES' || value === 'NO' || value === 'CUSTOM') return value;
+    if (value === 'AUTO') return 'CUSTOM';
+    return fallback;
+  }
+
+  function sampleFilterLabel(value) {
+    return SAMPLE_FILTER_LABELS[normalizeSampleFilterMode(value)] || '-';
+  }
+
   function getTestIndustryMajors() {
     return getIndustrySelector()?.getTestIndustryMajors?.()
       || ['电力', '建材', '钢铁', '有色', '石化', '化工', '造纸', '航空'];
@@ -1460,16 +1479,20 @@
     const IS = getIndustrySelector();
     if (!IS) return;
     const purpose = t?.stressPurpose || 'PBOC';
+    const sampleFilterMode = normalizeSampleFilterMode(t?.highCarbonFlag, t ? 'YES' : 'YES');
     let selected;
-    if (t?.selectedIndustryCodes?.length) {
-      selected = new Set(t.selectedIndustryCodes);
-    } else if (purpose === 'PBOC') {
+    if (sampleFilterMode === 'YES') {
       selected = new Set(IS.getPbocDefaultCodes());
+    } else if (sampleFilterMode === 'NO') {
+      selected = new Set(IS.getNonHighCarbonCodes?.() || []);
+    } else if (t?.selectedIndustryCodes?.length) {
+      selected = new Set(t.selectedIndustryCodes);
     } else {
       selected = new Set();
     }
     industryPickerState = {
       purpose,
+      sampleFilterMode,
       selected,
       activeIds: [null, null, null, null],
       search: '',
@@ -1483,9 +1506,12 @@
   function getTaskIndustrySummary(t) {
     const IS = getIndustrySelector();
     if (!IS) return '-';
-    const codes = t?.selectedIndustryCodes?.length
-      ? t.selectedIndustryCodes
-      : (t?.stressPurpose === 'PBOC' ? IS.getPbocDefaultCodes() : []);
+    const sampleFilterMode = normalizeSampleFilterMode(t?.highCarbonFlag);
+    const codes = sampleFilterMode === 'YES'
+      ? IS.getPbocDefaultCodes()
+      : sampleFilterMode === 'NO'
+        ? (IS.getNonHighCarbonCodes?.() || [])
+        : (t?.selectedIndustryCodes || []);
     return codes.length ? IS.formatSelectedSummary(codes) : '-';
   }
 
@@ -1584,14 +1610,30 @@
     return industryPickerState ? [...industryPickerState.selected] : [];
   }
 
-  function onStressPurposeChange() {
+  function currentSampleFilterMode() {
+    return normalizeSampleFilterMode(
+      document.getElementById('d_highCarbonFlag')?.value || industryPickerState?.sampleFilterMode,
+    );
+  }
+
+  function setIndustryPickerLockedUI(locked) {
+    const root = document.getElementById('industryPickerRoot');
+    if (root) root.classList.toggle('is-disabled', locked);
+    const search = document.getElementById('industryPickerSearch');
+    if (search) search.disabled = locked;
+    root?.querySelectorAll('.industry-picker-toolbar button').forEach((button) => { button.disabled = locked; });
+  }
+
+  function applySampleFilterModeToIndustryPicker(mode, options = {}) {
     const IS = getIndustrySelector();
     if (!IS || !industryPickerState) return;
-    const purpose = document.getElementById('d_stressPurpose')?.value || 'PBOC';
-    industryPickerState.purpose = purpose;
-    if (purpose === 'PBOC') {
+    const normalized = normalizeSampleFilterMode(mode);
+    industryPickerState.sampleFilterMode = normalized;
+    if (normalized === 'YES') {
       industryPickerState.selected = new Set(IS.getPbocDefaultCodes());
-    } else {
+    } else if (normalized === 'NO') {
+      industryPickerState.selected = new Set(IS.getNonHighCarbonCodes?.() || []);
+    } else if (options.clearCustom !== false) {
       industryPickerState.selected = new Set();
     }
     industryPickerState.activeIds = [null, null, null, null];
@@ -1599,10 +1641,23 @@
     const searchEl = document.getElementById('industryPickerSearch');
     if (searchEl) searchEl.value = '';
     refreshIndustryPickerUI();
+    setIndustryPickerLockedUI(normalized !== 'CUSTOM');
+  }
+
+  function onSampleFilterModeChange() {
+    applySampleFilterModeToIndustryPicker(document.getElementById('d_highCarbonFlag')?.value || 'YES');
+  }
+
+  function onStressPurposeChange() {
+    const IS = getIndustrySelector();
+    if (!IS || !industryPickerState) return;
+    const purpose = document.getElementById('d_stressPurpose')?.value || 'PBOC';
+    industryPickerState.purpose = purpose;
+    applySampleFilterModeToIndustryPicker(currentSampleFilterMode(), { clearCustom: false });
   }
 
   function onIndustrySearchInput(value) {
-    if (!industryPickerState) return;
+    if (!industryPickerState || currentSampleFilterMode() !== 'CUSTOM') return;
     industryPickerState.search = value || '';
     industryPickerState.activeIds = [null, null, null, null];
     refreshIndustryPickerUI();
@@ -1610,20 +1665,20 @@
 
   function onIndustrySelectAll() {
     const IS = getIndustrySelector();
-    if (!IS || !industryPickerState) return;
+    if (!IS || !industryPickerState || currentSampleFilterMode() !== 'CUSTOM') return;
     IS.getAllSelectableLeaves().forEach((code) => industryPickerState.selected.add(code));
     refreshIndustryPickerUI();
   }
 
   function onIndustryClearAll() {
-    if (!industryPickerState) return;
+    if (!industryPickerState || currentSampleFilterMode() !== 'CUSTOM') return;
     industryPickerState.selected.clear();
     refreshIndustryPickerUI();
   }
 
   function onIndustryCheckClick(nodeId, isLeaf) {
     const IS = getIndustrySelector();
-    if (!IS || !industryPickerState) return;
+    if (!IS || !industryPickerState || currentSampleFilterMode() !== 'CUSTOM') return;
     let codes;
     if (isLeaf) {
       codes = [nodeId];
@@ -2026,22 +2081,24 @@
       case 1:
         return !t.loanDataSynced;
       case 2:
-        return !!t.loanDataSynced && !t.internalRatingDataSynced;
+        return !!t.loanDataSynced && !t.industryDisambigCompleted && !t.baseTablesGenerated;
       case 3:
-        return !!t.internalRatingDataSynced && !hasTaskFinancialDataSynced(t);
+        return !!t.loanDataSynced && !!t.industryDisambigCompleted && !t.internalRatingDataSynced;
       case 4:
-        return hasTaskFinancialDataSynced(t) && !t.eclDataSynced;
+        return !!t.internalRatingDataSynced && !hasTaskFinancialDataSynced(t);
       case 5:
-        return !!t.eclDataSynced && !t.gelanDataSynced;
+        return hasTaskFinancialDataSynced(t) && !t.eclDataSynced;
       case 6:
-        return !!t.gelanDataSynced && !hasGeneratedBaseTable(t, 0);
+        return !!t.eclDataSynced && !t.gelanDataSynced;
       case 7:
-        return hasGeneratedBaseTable(t, 0) && !hasGeneratedBaseTable(t, 1);
+        return !!t.gelanDataSynced && !hasGeneratedBaseTable(t, 0);
       case 8:
-        return hasGeneratedBaseTable(t, 1) && !hasGeneratedBaseTable(t, 2);
+        return hasGeneratedBaseTable(t, 0) && !hasGeneratedBaseTable(t, 1);
       case 9:
-        return hasGeneratedBaseTable(t, 2) && !hasGeneratedBaseTable(t, 3);
+        return hasGeneratedBaseTable(t, 1) && !hasGeneratedBaseTable(t, 2);
       case 10:
+        return hasGeneratedBaseTable(t, 2) && !hasGeneratedBaseTable(t, 3);
+      case 11:
         return hasGeneratedBaseTable(t, 3) && !hasGeneratedBaseTable(t, 4);
       default:
         return false;
@@ -2397,7 +2454,7 @@
     if (hasModel) {
       record.internalRatingModel = ['对公内评-V2.1', '对公内评-V3.0', '零售内评-V1.2'][record.id % 3];
       const base = record.pdValue ?? (0.008 + (record.id % 7) * 0.004);
-      record.baselinePd = Math.round(Math.min(0.99, base) * 10000) / 10000;
+      record.baselinePd = Math.round(base * 10000) / 10000;
     } else {
       record.internalRatingModel = null;
       record.baselinePd0 = Math.round((0.012 + (record.id % 5) * 0.006) * 10000) / 10000;
@@ -2555,19 +2612,19 @@
     if (pd != null && pd0 == null && lgd0 == null) {
       record.hasInternalRatingModel = true;
       record.internalRatingModel = record.internalRatingModel || '对公内评-导入';
-      record.baselinePd = Math.min(0.99, Math.round(pd * 10000) / 10000);
+      record.baselinePd = Math.round(pd * 10000) / 10000;
       record.baselinePd0 = null;
       record.baselineLgd0 = null;
     } else if (pd == null && pd0 != null && lgd0 != null) {
       record.hasInternalRatingModel = false;
       record.internalRatingModel = null;
       record.baselinePd = null;
-      record.baselinePd0 = Math.min(0.99, Math.round(pd0 * 10000) / 10000);
+      record.baselinePd0 = Math.round(pd0 * 10000) / 10000;
       record.baselineLgd0 = Math.min(1, Math.round(lgd0 * 10000) / 10000);
     } else if (pd != null) {
       record.hasInternalRatingModel = true;
       record.internalRatingModel = record.internalRatingModel || '对公内评-导入';
-      record.baselinePd = Math.min(0.99, Math.round(pd * 10000) / 10000);
+      record.baselinePd = Math.round(pd * 10000) / 10000;
       record.baselinePd0 = null;
       record.baselineLgd0 = null;
     }
@@ -2632,14 +2689,14 @@
       const baseLgd0 = r.baselineLgd0 ?? 0.45;
       if (i % 2 === 0) {
         applyInternalPdImportToRecord(r, {
-          baselinePd: Math.min(0.99, Math.round((basePd + 0.003 + i * 0.001) * 10000) / 10000),
+          baselinePd: Math.round((basePd + 0.003 + i * 0.001) * 10000) / 10000,
           baselinePd0: null,
           baselineLgd0: null,
         });
       } else {
         applyInternalPdImportToRecord(r, {
           baselinePd: null,
-          baselinePd0: Math.min(0.99, Math.round((basePd0 + 0.004 + i * 0.001) * 10000) / 10000),
+          baselinePd0: Math.round((basePd0 + 0.004 + i * 0.001) * 10000) / 10000,
           baselineLgd0: Math.min(1, Math.round((baseLgd0 + 0.02) * 10000) / 10000),
         });
       }
@@ -2656,7 +2713,7 @@
   }
 
   function finSyncTableColspan(opts) {
-    let n = 28 + (opts.showCustomerId ? 1 : 0);
+    let n = 31 + (opts.showCustomerId ? 1 : 0);
     if (opts.showStatusCols !== false) n += 1;
     if (opts.showOpCol) n += 1;
     if (opts.showInternalCol) n += 1;
@@ -2679,7 +2736,7 @@
         <th rowspan="2" class="th-sub">序号</th>
         ${customerIdHead}
         <th colspan="11" class="th-group-basic">基本情况（${basicYear}年）</th>
-        <th colspan="14" class="th-group-fin">财务状况（${financialYear}年）</th>
+        <th colspan="17" class="th-group-fin">财务状况（${financialYear}年）</th>
         <th colspan="2" class="th-group-ghg">温室气体排放情况（${financialYear}年）</th>
         ${metaCells.join('')}
       </tr>
@@ -2709,6 +2766,9 @@
         <th class="th-sub">营业成本（万元）</th>
         <th class="th-sub">利润总额（万元）</th>
         <th class="th-sub">净利润（万元）</th>
+        <th class="th-sub">手工录入项名称</th>
+        <th class="th-sub">手工录入项代码</th>
+        <th class="th-sub">手工录入项值</th>
         <th class="th-sub">${ghgDisclosureLabel}</th>
         <th class="th-sub">温室气体排放量（吨CO2当量）</th>
       </tr>
@@ -2759,6 +2819,9 @@
       <td>${finCell(r.operatingCost)}</td>
       <td>${finCell(r.totalProfit)}</td>
       <td>${finCell(r.netProfit)}</td>
+      <td>${finVisible ? esc(r.manualInputName || '-') : ''}</td>
+      <td>${finVisible ? esc(r.manualInputCode || '-') : ''}</td>
+      <td>${finVisible ? esc(r.manualInputValue ?? '-') : ''}</td>
       <td>${ghgYesNo}${ghgEditTag}</td>
       <td>${ghgAmount}${ghgEditTag}</td>
       ${showStatus ? `<td>${customerBasicDisplayStatusLabel(r)}</td>` : ''}
@@ -2854,8 +2917,6 @@
     r.qualitativeScore = r.qualitativeScore ?? (72 + (index % 8));
     r.creditScore = r.creditScore ?? (68 + (index % 10));
     r.governmentSupportScore = r.governmentSupportScore ?? (60 + (index % 12));
-    r.pdEclT0 = r.pdEclT0 ?? r.pdValue ?? 0.02;
-    r.lgdT0 = r.lgdT0 ?? 0.45;
     r.isHighCarbon = r.isHighCarbon ?? !!window.CRST_CARBON?.isHighCarbonIndustry?.(r.standardIndustry, r.gbIndustryCode);
     r.industrySubCustomer = r.industrySubCustomer || r.industryName || r.standardIndustry || '-';
     r.industrySubInvest = r.industrySubInvest || r.industryName || r.standardIndustry || '-';
@@ -2915,11 +2976,14 @@
           <td>${esc(r.financialReportStatus)}</td>
           <td class="num">${formatAlrPercent(r.assetLiabilityRatio)}</td>
           <td>${r.loanClassification && BAD_LOAN_CLASSES.has(r.loanClassification) ? '是' : '否'}</td>
+          <td>${esc(r.manualInputName || '-')}</td>
+          <td>${esc(r.manualInputCode || '-')}</td>
+          <td>${esc(r.manualInputValue ?? '-')}</td>
           ${config.metrics.map(([key]) => `<td class="num">${fmtFinAmount(r[key] ?? (key === 'operatingRevenue' ? r.revenue : null))}</td>`).join('')}
           ${generated ? `<td>${esc(buildFinancialDataWarning(r))}</td>` : ''}
           <td>${r.financialDataSynced ? '已同步' : '待同步'}</td>
         </tr>`).join('')
-      : `<tr><td colspan="${20 + config.metrics.length + (generated ? 1 : 0)}" class="empty">${t.internalRatingDataSynced ? '请点击“同步财务数据”获取财务报表' : '请先同步内部评级数据'}</td></tr>`;
+      : `<tr><td colspan="${23 + config.metrics.length + (generated ? 1 : 0)}" class="empty">${t.internalRatingDataSynced ? '请点击“同步财务数据”获取财务报表' : '请先同步内部评级数据'}</td></tr>`;
     return `
       <section class="financial-source-section">
         <div class="financial-source-heading">
@@ -2935,6 +2999,7 @@
             <th>序号</th><th>信贷客户编号</th><th>客户名称</th><th>业务余额（折人民币）</th><th>拨备计提金额（折人民币）</th><th>基期五级分类</th><th>是否为高碳客户</th>
             <th>行业小类（客户）</th><th>行业小类（投向）</th><th>所属行业</th><th>评级模型代码</th><th>评级模型名称</th><th>评级等级（认定结果）</th><th>基期PD内评t0</th>
             <th>是否有财报</th><th>报表年份</th><th>财务报表版本</th><th>财务报表类型</th><th>财务报表范围（本部/合并）</th><th>财务报表状态</th><th>基期资产负债率</th><th>是否违约</th>
+            <th>手工录入项名称</th><th>手工录入项代码</th><th>手工录入项值</th>
             ${metricHeads}${generated ? '<th>说明</th>' : ''}<th>同步状态</th>
           </tr></thead><tbody>${body}</tbody>
         </table></div>
@@ -2956,31 +3021,36 @@
   }
 
   function renderLoanDataSection(t, records) {
-    const headers = ['序号','信贷客户编号','客户名称','核心账号','统一社会信用代码','所在地区（省/自治区/直辖市）','所在分行','贷款类型','业务余额（折人民币）','拨备计提金额（折人民币）','信贷业务种类','基期五级分类','行业小类（客户）','行业小类（投向）'];
-    const rows = records.map((r,i) => `<tr><td>${i+1}</td><td>${esc(r.creditCustomerNo||'-')}</td><td>${esc(r.companyName||'-')}</td><td>${esc(r.coreAccountNo||'-')}</td><td>${esc(r.unifiedSocialCreditCode||'-')}</td><td>${esc(r.province||provinceFromBranch(r.branchName))}</td><td>${esc(r.branchName||'-')}</td><td>${esc(t.loanType === 'CORPORATE' ? '对公（含普惠）' : t.loanType === 'PERSONAL_BUSINESS' ? '个人经营性贷款' : '个人贷款')}</td><td>${fmtFinAmount(r.loanBalance)}</td><td>${fmtFinAmount(r.provisionAmount)}</td><td>${esc(r.creditBusinessType||'流动资金贷款')}</td><td>${esc(loanClassLabel(r.loanClassification))}</td><td>${esc(r.industrySubCustomer||r.industryName||'-')}</td><td>${esc(r.industrySubInvest||r.industryName||'-')}</td></tr>`);
-    return renderDataSourceSection('贷款数据', `根据任务概览的基准年度 ${getTaskBaselineYear(t)} 及全部行业口径，从综合报表系统调取。`, headers, rows, hasTaskLoanDataSynced(t), '请先同步贷款数据');
+    const headers = ['序号','信贷客户编号','客户名称','核心账号','统一社会信用代码','所在地区（省/自治区/直辖市）','所在分行','贷款类型','业务余额（折人民币）','拨备计提金额（折人民币）','信贷业务种类','基期五级分类','行业小类（客户）','行业小类（投向）','测试行业'];
+    const rows = records.map((r,i) => `<tr><td>${i+1}</td><td>${esc(r.creditCustomerNo||'-')}</td><td>${esc(r.companyName||'-')}</td><td>${esc(r.coreAccountNo||'-')}</td><td>${esc(r.unifiedSocialCreditCode||'-')}</td><td>${esc(r.province||provinceFromBranch(r.branchName))}</td><td>${esc(r.branchName||'-')}</td><td>${esc(t.loanType === 'CORPORATE' ? '对公（含普惠）' : t.loanType === 'PERSONAL_BUSINESS' ? '个人经营性贷款' : '个人贷款')}</td><td>${fmtFinAmount(r.loanBalance)}</td><td>${fmtFinAmount(r.provisionAmount)}</td><td>${esc(r.creditBusinessType||'流动资金贷款')}</td><td>${esc(loanClassLabel(r.loanClassification))}</td><td>${esc(r.industrySubCustomer||r.industryName||'-')}</td><td>${esc(r.industrySubInvest||r.industryName||'-')}</td><td>${esc(r.standardIndustry||'-')}</td></tr>`);
+    return renderDataSourceSection('贷款数据', `根据任务概览的基准年度 ${getTaskBaselineYear(t)}、${sampleFilterLabel(t?.highCarbonFlag)}样本口径及所选涉及行业，从综合报表系统调取。`, headers, rows, hasTaskLoanDataSynced(t), '请先同步贷款数据');
   }
 
   function renderInternalRatingDataSection(t, records) {
     const headers = ['序号','信贷客户编号','客户名称','评级模型代码','评级模型名称','评级等级（认定结果）','评级结果1','违约概率PD内评t0','定性指标总分值（加权后）','征信指标总分值（加权后）','政府支持指标总分值（加权后）'];
     const rows = records.map((r,i) => `<tr><td>${i+1}</td><td>${esc(r.creditCustomerNo||'-')}</td><td>${esc(r.companyName||'-')}</td><td>${esc(r.ratingModelCode||'-')}</td><td>${esc(r.ratingModelName||'-')}</td><td>${esc(r.internalRating||'-')}</td><td>${esc(r.ratingResult1||'-')}</td><td>${formatPdMetric(r.pdInternalT0)}</td><td>${r.qualitativeScore??'-'}</td><td>${r.creditScore??'-'}</td><td>${r.governmentSupportScore??'-'}</td></tr>`);
-    return renderDataSourceSection('内部评级数据', `根据基准年度 ${getTaskBaselineYear(t)} 和信贷客户编号从数仓调取；财报版本对应的评级规则不混用。`, headers, rows, !!t.internalRatingDataSynced || t.status !== 'DRAFT', '请先同步内部评级数据');
+    return renderDataSourceSection('内部评级数据', '无内评模型或无财报客户的 PD、LGD 暂留空，后续执行【同步预期信用损失数据】时直接从减估值系统同步。', headers, rows, !!t.internalRatingDataSynced || t.status !== 'DRAFT', '请先同步内部评级数据');
+  }
+
+  function isEclSyncTarget(record) {
+    return !!record && (record.hasInternalRatingModel === false || record.reportMissing || record.pdInternalT0 == null);
   }
 
   function renderEclDataSection(t, records) {
     const headers = ['序号','核心账号','信贷客户编号','客户名称','违约概率PDECLt0','违约损失率LGDt0'];
-    const rows = records.map((r,i) => `<tr><td>${i+1}</td><td>${esc(r.coreAccountNo||'-')}</td><td>${esc(r.creditCustomerNo||'-')}</td><td>${esc(r.companyName||'-')}</td><td>${formatPdMetric(r.pdEclT0)}</td><td>${formatPdMetric(r.lgdT0)}</td></tr>`);
-    return renderDataSourceSection('预期信用损失数据', `根据基准年度 ${getTaskBaselineYear(t)} 和核心账号从减估值系统调取。`, headers, rows, !!t.eclDataSynced || t.status !== 'DRAFT', '请先同步预期信用损失数据');
+    const targets = records.filter(isEclSyncTarget);
+    const rows = targets.map((r,i) => `<tr><td>${i+1}</td><td>${esc(r.coreAccountNo||'-')}</td><td>${esc(r.creditCustomerNo||'-')}</td><td>${esc(r.companyName||'-')}</td><td>${formatPdMetric(r.pdEclT0)}</td><td>${formatPdMetric(r.lgdT0)}</td></tr>`);
+    return renderDataSourceSection('预期信用损失数据', `针对无内评模型或无财报客户，根据基准年度 ${getTaskBaselineYear(t)} 和核心账号从减估值系统直接同步 PDECLt0、LGDt0。`, headers, rows, !!t.eclDataSynced || t.status !== 'DRAFT', '请先同步预期信用损失数据');
   }
 
   function renderGelanDataSection(t, records) {
     const headers = ['序号','信贷客户编号','客户名称','是否为高碳客户','披露温室气体排放情况（是/否）','温室气体排放量（吨二氧化碳当量）','机场吞吐量'];
     const rows = records.map((r,i) => `<tr><td>${i+1}</td><td>${esc(r.creditCustomerNo||'-')}</td><td>${esc(r.companyName||'-')}</td><td>${r.isHighCarbon?'是':'否'}</td><td>${r.isHighCarbon ? (r.ghgAccounted?'是':'否') : '否'}</td><td>${r.isHighCarbon ? fmtFinAmount(r.ghgEmissions??0) : '0'}</td><td>${r.isHighCarbon ? fmtFinAmount(r.airportThroughput??0) : '0'}</td></tr>`);
-    return renderDataSourceSection('格澜数据', '按高碳行业映射调取高碳客户数据；非高碳客户相应字段为0。', headers, rows, hasTaskGelanDataSynced(t), '请先同步格澜数据');
+    return renderDataSourceSection('格澜数据', '从格澜系统同步温室气体排放、机场吞吐量等外部碳数据，并通过高碳行业 label（标签）匹配抓取对应碳数据。', headers, rows, hasTaskGelanDataSynced(t), '请先同步格澜数据');
   }
 
   const CUSTOMER_BASIC_INFO_EXPORT_HEADERS = [
-    '序号','信贷客户编号','客户名称','核心账号','统一社会信用代码','所在地区（省/自治区/直辖市）','所在分行','贷款类型','业务余额（折人民币）','拨备计提金额（折人民币）','信贷业务种类','基期五级分类','是否为高碳客户',
+    '序号','客户号','信贷客户编号','客户名称','核心账号','统一社会信用代码','所在地区（省/自治区/直辖市）','所在分行','贷款类型','业务余额（折人民币）','贷款剩余期限（年）','拨备计提金额（折人民币）','信贷业务种类','基期五级分类','是否为高碳客户',
     '行业门类（客户）','行业大类（客户）','行业中类（客户）','行业小类（客户）','行业门类（投向）','行业大类（投向）','行业中类（投向）','行业小类（投向）','所属行业','业务发放日','业务到期日','业务期限（天）',
     '评级模型代码','评级模型名称','评级等级（认定结果）','评级结果1','定性指标总分值（加权后）','征信指标总分值（加权后）','政府支持指标总分值（加权后）','基期PD内评t0','基期PDECLt0','基期LGDt0','PDTTC','是否有财报','财务报表版本','基期资产负债率','披露温室气体排放情况（是/否）','温室气体排放量（吨二氧化碳当量）','机场吞吐量','说明'
   ];
@@ -3014,9 +3084,9 @@
   }
 
   const CUSTOMER_BASIC_INFO_COLUMNS = [
-    ['creditCustomerNo','信贷客户编号'], ['companyName','客户名称'], ['coreAccountNo','核心账号'], ['unifiedSocialCreditCode','统一社会信用代码'],
+    ['customerId','客户号'], ['creditCustomerNo','信贷客户编号'], ['companyName','客户名称'], ['coreAccountNo','核心账号'], ['unifiedSocialCreditCode','统一社会信用代码'],
     ['province','所在地区（省/自治区/直辖市）'], ['branchName','所在分行'], ['loanType','贷款类型'], ['loanBalance','业务余额（折人民币）'],
-    ['provisionAmount','拨备计提金额（折人民币）'], ['creditBusinessType','信贷业务种类'], ['loanClassification','基期五级分类'], ['isHighCarbon','是否为高碳客户'],
+    ['loanRemainingTermYears','贷款剩余期限（年）'], ['provisionAmount','拨备计提金额（折人民币）'], ['creditBusinessType','信贷业务种类'], ['loanClassification','基期五级分类'], ['isHighCarbon','是否为高碳客户'],
     ['industrySectionCustomer','行业门类（客户）'], ['industryMajorCustomer','行业大类（客户）'], ['industryMiddleCustomer','行业中类（客户）'], ['industrySubCustomer','行业小类（客户）'],
     ['industrySectionInvest','行业门类（投向）'], ['industryMajorInvest','行业大类（投向）'], ['industryMiddleInvest','行业中类（投向）'], ['industrySubInvest','行业小类（投向）'],
     ['standardIndustry','所属行业'], ['loanIssueDate','业务发放日'], ['loanMaturityDate','业务到期日'], ['loanTermDays','业务期限（天）'],
@@ -3083,9 +3153,79 @@
     return `
       <div class="customer-basic-info-section">
         <h4 class="step-subtitle">参试客户基础信息表</h4>
+        <p class="flow-hint"><strong>全量信息总表：</strong>由贷款、内部评级、财务、预期信用损失、格澜5类源数据拼接加工，共45字段，支持下载与导入回写。</p>
+        <p class="flow-hint">PDTTC 优先取「基期PD内评t0」，其无值时取「基期PDECLt0」（优先级：基期PD内评t0 ＞ 基期PDECLt0）。</p>
         ${toolbar}
         ${table}
       </div>`;
+  }
+
+  const HIGH_CARBON_EXTERNAL_COLUMNS = [
+    ['companyName', '客户名称'],
+    ['unifiedSocialCreditCode', '统一社会信用代码'],
+    ['province', '所在地区（省/自治区/直辖市）'],
+    ['externalIndustry', '所属行业'],
+    ['loanBalance', '贷款余额（万元）'],
+    ['loanTermYears', '贷款期限（年）'],
+    ['loanRemainingTermYears', '贷款剩余期限（年）'],
+    ['loanClassification', '贷款五级分类'],
+    ['totalAssets', '资产总额（万元）'],
+    ['monetaryFunds', '其中：货币资金（万元）'],
+    ['notesReceivable', '应收票据（万元）'],
+    ['accountsReceivable', '应收账款（万元）'],
+    ['inventory', '存货（万元）'],
+    ['totalCurrentAssets', '流动资产合计（万元）'],
+    ['fixedAssets', '固定资产（万元）'],
+    ['totalLiabilities', '负债总额（万元）'],
+    ['ownersEquity', '所有者权益（万元）'],
+    ['retainedEarnings', '其中：留存收益（万元）'],
+    ['operatingRevenue', '营业收入（万元）'],
+    ['operatingCost', '营业成本（万元）'],
+    ['totalProfit', '利润总额（万元）'],
+    ['netProfit', '净利润（万元）'],
+    ['ghgAccounted', '披露温室气体排放情况（是/否）'],
+    ['ghgEmissions', '温室气体排放量（吨CO₂当量）'],
+  ];
+
+  function highCarbonExternalIndustry(record) {
+    const IS = getIndustrySelector();
+    const gb = record.gbIndustryCode || '';
+    const major = resolveTestIndustryMajor(record.standardIndustry, gb);
+    const leaf = IS?.LEAF_MAP?.[gb]?.name || record.industryName || record.standardIndustry || '';
+    if (major && leaf && major !== leaf && !leaf.startsWith(`${major}-`)) return `${major}-${leaf}`;
+    return leaf || major || '-';
+  }
+
+  function highCarbonExternalRawCell(record, key) {
+    const retainedEarnings = record.retainedEarnings ?? (
+      record.surplusReserve != null || record.undistributedProfit != null
+        ? Number(record.surplusReserve || 0) + Number(record.undistributedProfit || 0)
+        : null
+    );
+    const values = {
+      province: record.province || provinceFromBranch(record.branchName),
+      externalIndustry: highCarbonExternalIndustry(record),
+      loanClassification: loanClassLabel(record.loanClassification),
+      fixedAssets: record.fixedAssets ?? record.fixedAssetsNet,
+      retainedEarnings,
+      operatingRevenue: record.operatingRevenue ?? record.revenue,
+      ghgAccounted: record.ghgAccounted ? '是' : '否',
+    };
+    const value = key in values ? values[key] : record[key];
+    if (['loanBalance','totalAssets','monetaryFunds','notesReceivable','accountsReceivable','inventory','totalCurrentAssets','fixedAssets','totalLiabilities','ownersEquity','retainedEarnings','operatingRevenue','operatingCost','totalProfit','netProfit','ghgEmissions'].includes(key)) {
+      return fmtFinAmount(value);
+    }
+    return value == null || value === '' ? '-' : String(value);
+  }
+
+  function buildHighCarbonExternalExportText(records) {
+    const groupRow = ['基本情况', '', '', '', '', '', '', '', '', '财务状况', '', '', '', '', '', '', '', '', '', '', '', '', '', '温室气体排放情况', ''];
+    const headerRow = ['序号', ...HIGH_CARBON_EXTERNAL_COLUMNS.map(([, label]) => label)];
+    const lines = [groupRow.join('\t'), headerRow.join('\t')];
+    records.forEach((record, index) => {
+      lines.push([index + 1, ...HIGH_CARBON_EXTERNAL_COLUMNS.map(([key]) => highCarbonExternalRawCell(record, key))].join('\t'));
+    });
+    return lines.join('\n');
   }
 
   function downloadGeneratedBaseTable(taskId, key) {
@@ -3094,6 +3234,33 @@
     const spec = baseTableGenerationSteps.find((item) => item.key === key);
     if (!spec) return;
     const recs = (recordsByTask[taskId] || []).filter((r) => !r.excluded && (key !== 'highCarbonCustomer' || r.isHighCarbon));
+    if (key === 'highCarbonCustomer') {
+      triggerExportFileDownload(`${spec.label}.xlsx`, buildHighCarbonExternalExportText(recs));
+      addLog(taskId, `数据处理：下载${spec.label}`);
+      toast(`已下载${spec.label}`);
+      return;
+    }
+    if (key === 'industryLoan') {
+      const classLabels = ['正常类', '关注类', '次级类', '可疑类', '损失类'];
+      const headers = [
+        '序号', '所属行业',
+        '各项贷款余额（万元）-合计', ...classLabels.map((label) => `各项贷款余额（万元）-${label}`),
+        '减值准备（拨备，万元）-合计', ...classLabels.map((label) => `减值准备（拨备，万元）-${label}`),
+      ];
+      const lines = [spec.label, `任务：${t.taskName || taskId}`, '', headers.join('\t')];
+      buildIndustryLoanSummary(recs).forEach(({ industry, summary: g }, index) => {
+        lines.push([
+          index + 1, industry, g.balance,
+          ...INDUSTRY_LOAN_CLASS_KEYS.map((classKey) => g.balances[classKey] || 0),
+          g.provision,
+          ...INDUSTRY_LOAN_CLASS_KEYS.map((classKey) => g.provisions[classKey] || 0),
+        ].join('\t'));
+      });
+      triggerExportFileDownload(`${spec.label}.xlsx`, lines.join('\n'));
+      addLog(taskId, `数据处理：下载${spec.label}`);
+      toast(`已下载${spec.label}`);
+      return;
+    }
     const lines = [spec.label, `任务：${t.taskName || taskId}`, '', '序号\t信贷客户编号\t客户名称\t所属行业\t业务余额（折人民币）'];
     recs.forEach((r,i) => lines.push(`${i+1}\t${r.creditCustomerNo || ''}\t${r.companyName || ''}\t${r.standardIndustry || ''}\t${r.loanBalance ?? ''}`));
     triggerExportFileDownload(`${spec.label}.xlsx`, lines.join('\n'));
@@ -3107,15 +3274,44 @@
 
   function renderHighCarbonCustomerTable(t, records, readonly) {
     const list = records.filter((r) => r.isHighCarbon);
-    const rows = list.map((r,i) => `<tr><td>${i+1}</td><td>${esc(r.creditCustomerNo||'-')}</td><td>${esc(r.companyName||'-')}</td><td>${esc(r.standardIndustry||'-')}</td><td>${fmtFinAmount(r.loanBalance)}</td><td>${esc(loanClassLabel(r.loanClassification))}</td><td>${formatPdMetric(r.pdInternalT0 ?? r.pdEclT0)}</td><td>${formatPdMetric(r.lgdT0)}</td></tr>`).join('');
-    return `<section class="generated-base-section"><div class="financial-source-heading"><h4 class="step-subtitle">高碳行业客户基础信息表</h4>${renderGeneratedTableToolbar(t,'highCarbonCustomer',readonly)}</div><p class="flow-hint">根据上述步骤基础数据生成，按附件3模板管理。</p><div class="table-wrap"><table><thead><tr><th>序号</th><th>信贷客户编号</th><th>客户名称</th><th>所属行业</th><th>业务余额（折人民币）</th><th>基期五级分类</th><th>PDTTC</th><th>基期LGDt0</th></tr></thead><tbody>${rows || '<tr><td colspan="8" class="empty">暂无高碳行业客户</td></tr>'}</tbody></table></div></section>`;
+    const rows = list.map((record,index) => `<tr><td>${index+1}</td>${HIGH_CARBON_EXTERNAL_COLUMNS.map(([key]) => `<td>${esc(highCarbonExternalRawCell(record,key))}</td>`).join('')}</tr>`).join('');
+    const headers = HIGH_CARBON_EXTERNAL_COLUMNS.map(([,label]) => `<th>${esc(label)}</th>`).join('');
+    return `<section class="generated-base-section"><div class="financial-source-heading"><h4 class="step-subtitle">高碳行业客户基础信息表</h4>${renderGeneratedTableToolbar(t,'highCarbonCustomer',readonly)}</div><p class="flow-hint">页面与下载按人行外报《高碳行业客户基础信息表》的25个字段列示；导入回写仍沿用通用处理流程，25字段模板回写待完善。</p><div class="table-wrap"><table><thead><tr><th colspan="9">基本情况</th><th colspan="14">财务状况</th><th colspan="2">温室气体排放情况</th></tr><tr><th>序号</th>${headers}</tr></thead><tbody>${rows || '<tr><td colspan="25" class="empty">暂无高碳行业客户</td></tr>'}</tbody></table></div></section>`;
+  }
+
+  const INDUSTRY_LOAN_CLASS_KEYS = ['NORMAL','ATTENTION','SUBSTANDARD','DOUBTFUL','LOSS'];
+
+  function buildIndustryLoanSummary(records) {
+    const legalEntityBuckets = new Map();
+    records.filter((r) => !r.excluded).forEach((r) => {
+      const legalEntityKey = r.unifiedSocialCreditCode || r.creditCustomerNo || r.customerId || r.companyName || String(r.id);
+      const industry = r.standardIndustry || '未映射';
+      const loanClass = INDUSTRY_LOAN_CLASS_KEYS.includes(r.loanClassification) ? r.loanClassification : '';
+      const bucketKey = `${legalEntityKey}::${industry}::${loanClass || 'UNCLASSIFIED'}`;
+      const bucket = legalEntityBuckets.get(bucketKey) || { industry, loanClass, balance: 0, provision: 0 };
+      bucket.balance += Number(r.loanBalance) || 0;
+      bucket.provision += Number(r.provisionAmount) || 0;
+      legalEntityBuckets.set(bucketKey, bucket);
+    });
+
+    const industryGroups = new Map();
+    legalEntityBuckets.forEach((bucket) => {
+      const summary = industryGroups.get(bucket.industry) || { balance: 0, provision: 0, balances: {}, provisions: {} };
+      summary.balance += bucket.balance;
+      summary.provision += bucket.provision;
+      if (bucket.loanClass) {
+        summary.balances[bucket.loanClass] = (summary.balances[bucket.loanClass] || 0) + bucket.balance;
+        summary.provisions[bucket.loanClass] = (summary.provisions[bucket.loanClass] || 0) + bucket.provision;
+      }
+      industryGroups.set(bucket.industry, summary);
+    });
+    return [...industryGroups.entries()].map(([industry, summary]) => ({ industry, summary }));
   }
 
   function renderIndustryLoanTable(t, records, readonly) {
-    const groups = new Map();
-    records.filter((r) => !r.excluded).forEach((r) => { const k = r.standardIndustry || '未映射'; const g = groups.get(k) || {count:0,balance:0,provision:0}; g.count += 1; g.balance += Number(r.loanBalance)||0; g.provision += Number(r.provisionAmount)||0; groups.set(k,g); });
-    const rows = [...groups.entries()].map(([industry,g],i) => `<tr><td>${i+1}</td><td>${esc(industry)}</td><td>${g.count}</td><td>${fmtFinAmount(g.balance)}</td><td>${fmtFinAmount(g.provision)}</td></tr>`).join('');
-    return `<section class="generated-base-section"><div class="financial-source-heading"><h4 class="step-subtitle">分行业贷款信息表</h4>${renderGeneratedTableToolbar(t,'industryLoan',readonly)}</div><p class="flow-hint">根据上述步骤基础数据分行业汇总生成，按附件3模板管理。</p><div class="table-wrap"><table><thead><tr><th>序号</th><th>所属行业</th><th>客户数量</th><th>业务余额（折人民币）</th><th>拨备计提金额（折人民币）</th></tr></thead><tbody>${rows || '<tr><td colspan="5" class="empty">暂无数据</td></tr>'}</tbody></table></div></section>`;
+    const rows = buildIndustryLoanSummary(records).map(({ industry, summary: g },i) => `<tr><td>${i+1}</td><td>${esc(industry)}</td><td>${fmtFinAmount(g.balance)}</td>${INDUSTRY_LOAN_CLASS_KEYS.map((k)=>`<td>${fmtFinAmount(g.balances[k]||0)}</td>`).join('')}<td>${fmtFinAmount(g.provision)}</td>${INDUSTRY_LOAN_CLASS_KEYS.map((k)=>`<td>${fmtFinAmount(g.provisions[k]||0)}</td>`).join('')}</tr>`).join('');
+    const classHeads = '<th>正常类</th><th>关注类</th><th>次级类</th><th>可疑类</th><th>损失类</th>';
+    return `<section class="generated-base-section"><div class="financial-source-heading"><h4 class="step-subtitle">分行业贷款信息表</h4>${renderGeneratedTableToolbar(t,'industryLoan',readonly)}</div><p class="flow-hint"><strong>统计口径：</strong>仅汇总未排除数据，先按统一社会信用代码、信贷客户编号等法人标识归集，再按所属行业汇总。</p><p class="flow-hint"><strong>计算逻辑：</strong>行业贷款余额合计＝Σ该行业法人各项贷款余额；正常类、关注类、次级类、可疑类、损失类贷款余额分别按贷款五级分类汇总。行业减值准备合计及五级分类减值准备按相同口径汇总，未识别的五级分类不再默认计入正常类。</p><div class="table-wrap"><table><thead><tr><th rowspan="2">序号</th><th rowspan="2">所属行业</th><th colspan="6">各项贷款余额（万元）</th><th colspan="6">减值准备（拨备，万元）</th></tr><tr><th>合计</th>${classHeads}<th>合计</th>${classHeads}</tr></thead><tbody>${rows || '<tr><td colspan="14" class="empty">暂无数据</td></tr>'}</tbody></table></div></section>`;
   }
 
   function renderReferencedDataProcessTables(job, jobRecs) {
@@ -3749,7 +3945,7 @@
   }
 
   function renderBankCapitalMetricsSection(t) {
-    if (!t?.loanDataSynced) return '';
+    if (!hasTaskLoanDataSynced(t)) return '';
     ensureBankCapitalMetricsFromLoanSync(t);
     const capital = getTaskBankCapital(t);
     if (!capital) return '';
@@ -3759,6 +3955,7 @@
         ? ' <span class="bank-capital-editable-tag">可编辑</span>' : '';
       return `<tr class="bank-basic-row-capital"><td>${esc(row.label)}${editableMark}</td><td>${formatBankBasicCell(val, row.isPct)}</td></tr>`;
     }).join('');
+    const manualRows = BANK_REPORT_MANUAL_ROWS.map((row) => `<tr class="bank-basic-row-capital bank-basic-row-manual"><td>${esc(row.label)} <span class="bank-capital-editable-tag">人工补录</span></td><td>${formatBankBasicCell(capital[row.key], row.isPct)}</td></tr>`).join('');
     const readonly = taskViewMode && !taskEditMode;
     const toolbarActions = `
       <div class="toolbar-btn-group toolbar-btn-group--end bank-capital-toolbar-actions">
@@ -3774,12 +3971,13 @@
           <h4 class="step-subtitle">参试银行资本与拨备监管指标</h4>
           ${toolbarActions}
         </div>
-        <p class="flow-hint">以下指标在同步贷款数据时从监管市集获取；「贷款拨备率监管要求」「拨备覆盖率监管要求」支持手动调整。</p>
+        <p class="flow-hint">资本净额、贷款总额、不良贷款余额、减值准备等按源数据生成；本系统不自动获取、不计算风险加权资产和资本充足率。</p>
+        <div class="v11-rule-note"><strong>人工补录：</strong>生成报送监管表单之前，「风险加权资产、资本充足率」需额外人工补录。</div>
         ${editToolbar}
         <div class="table-wrap bank-capital-metrics-table">
           <table>
             <thead><tr><th>指标名称</th><th>数值</th></tr></thead>
-            <tbody>${rows}</tbody>
+            <tbody>${rows}${manualRows}</tbody>
           </table>
         </div>
       </div>`;
@@ -4153,13 +4351,14 @@
     if (!body || !capital) return;
     const editableHtml = BANK_BASIC_CAPITAL_ROWS
       .filter((row) => BANK_CAPITAL_EDITABLE_KEYS.includes(row.key))
+      .concat(BANK_REPORT_MANUAL_ROWS)
       .map((row) => `<tr>
         <td>${esc(row.label)}</td>
         <td><input class="input bank-capital-edit-input" id="bank_capital_${row.key}" type="number" step="0.1" min="0"
           value="${capital[row.key] != null ? capital[row.key] : ''}" /></td>
       </tr>`).join('');
     body.innerHTML = `
-      <p class="modal-desc">贷款拨备率与拨备覆盖率监管要求可手动调整。</p>
+      <p class="modal-desc">贷款拨备率与拨备覆盖率监管要求可调整；风险加权资产、资本充足率须在生成监管表单前人工补录。</p>
       <div class="table-wrap bank-capital-edit-table">
         <table>
           <thead><tr><th>指标名称</th><th>数值</th></tr></thead>
@@ -4177,8 +4376,12 @@
     ensureBankCapitalMetricsFromLoanSync(t);
     const provEl = document.getElementById('bank_capital_provisionRatioReq');
     const covEl = document.getElementById('bank_capital_coverageRatioReq');
+    const rwaEl = document.getElementById('bank_capital_rwaTotal');
+    const carEl = document.getElementById('bank_capital_capitalAdequacyRatio');
     const prov = parseFloat(provEl?.value);
     const cov = parseFloat(covEl?.value);
+    const rwa = parseFloat(rwaEl?.value);
+    const car = parseFloat(carEl?.value);
     if (!Number.isFinite(prov) || prov < 0) {
       toast('请输入有效的贷款拨备率监管要求', 'error');
       return;
@@ -4187,8 +4390,14 @@
       toast('请输入有效的拨备覆盖率监管要求', 'error');
       return;
     }
+    if (!Number.isFinite(rwa) || rwa < 0 || !Number.isFinite(car) || car < 0) {
+      toast('请补录有效的风险加权资产和资本充足率', 'error');
+      return;
+    }
     t.bankBasicInfo.capital.provisionRatioReq = Math.round(prov * 10) / 10;
     t.bankBasicInfo.capital.coverageRatioReq = Math.round(cov * 10) / 10;
+    t.bankBasicInfo.capital.rwaTotal = Math.round(rwa * 100) / 100;
+    t.bankBasicInfo.capital.capitalAdequacyRatio = Math.round(car * 10) / 10;
     t.updatedAt = nowStr();
     addLog(taskId, `数据处理：更新拨备监管要求（拨备率 ${t.bankBasicInfo.capital.provisionRatioReq}%，覆盖率 ${t.bankBasicInfo.capital.coverageRatioReq}%）`);
     pendingBankCapitalEditTaskId = null;
@@ -4803,8 +5012,7 @@
       `<option value="PERSONAL" ${taskFilters.loanType === 'PERSONAL' ? 'selected' : ''}>个人贷款</option>`,
     ].join('');
     const loanRegionFilterOpts = [
-      '<option value="">全部</option>',
-      `<option value="DOMESTIC" ${taskFilters.loanRegion === 'DOMESTIC' ? 'selected' : ''}>境内（含香港）</option>`,
+      `<option value="DOMESTIC" ${!taskFilters.loanRegion || taskFilters.loanRegion === 'DOMESTIC' ? 'selected' : ''}>境内</option>`,
       `<option value="OVERSEAS" ${taskFilters.loanRegion === 'OVERSEAS' ? 'selected' : ''}>境外</option>`,
       `<option value="BOTH" ${taskFilters.loanRegion === 'BOTH' ? 'selected' : ''}>境内外</option>`,
     ].join('');
@@ -4854,14 +5062,19 @@
     if (!displayOnly) ensureIndustryPickerInit(t);
     const stressPurpose = t?.stressPurpose || industryPickerState?.purpose || 'PBOC';
     if (industryPickerState && !displayOnly) industryPickerState.purpose = stressPurpose;
+    const sampleFilterMode = normalizeSampleFilterMode(t?.highCarbonFlag || industryPickerState?.sampleFilterMode);
+    if (industryPickerState && !displayOnly) industryPickerState.sampleFilterMode = sampleFilterMode;
     const purposeOpts = STRESS_PURPOSE_OPTIONS.map((o) =>
       `<option value="${o.value}" ${stressPurpose === o.value ? 'selected' : ''}>${esc(o.label)}</option>`
     ).join('');
-    const yearOpts = Array.from({ length: 74 }, (_, i) => {
-      const y = 2026 + i;
-      return `<option value="${y}" ${(Number(t?.reportYear) || 2026) === y ? 'selected' : ''}>${y}</option>`;
-    }).join('');
     const baselineYearValue = Number(t?.baselineYear) || ((Number(t?.reportYear) || 2026) - 1);
+    const today = new Date();
+    const beforeApr30 = (today.getMonth() + 1) < 4 || ((today.getMonth() + 1) === 4 && today.getDate() < 30);
+    const reportYearValue = Number(t?.reportYear) || (beforeApr30 ? baselineYearValue - 1 : baselineYearValue);
+    const yearOpts = Array.from({ length: 80 }, (_, i) => {
+      const y = 2020 + i;
+      return `<option value="${y}" ${reportYearValue === y ? 'selected' : ''}>${y}</option>`;
+    }).join('');
     const baselineYearOpts = Array.from({ length: 80 }, (_, i) => {
       const y = 2020 + i;
       return `<option value="${y}" ${baselineYearValue === y ? 'selected' : ''}>${y}</option>`;
@@ -4872,7 +5085,7 @@
       `<option value="PERSONAL" ${t?.loanType === 'PERSONAL' ? 'selected' : ''}>个人贷款</option>`,
     ].join('');
     const loanRegionOpts = [
-      `<option value="DOMESTIC" ${(!t?.loanRegion || t?.loanRegion === 'DOMESTIC') ? 'selected' : ''}>境内（含香港）</option>`,
+      `<option value="DOMESTIC" ${(!t?.loanRegion || t?.loanRegion === 'DOMESTIC') ? 'selected' : ''}>境内</option>`,
       `<option value="OVERSEAS" ${t?.loanRegion === 'OVERSEAS' ? 'selected' : ''}>境外</option>`,
       `<option value="BOTH" ${t?.loanRegion === 'BOTH' ? 'selected' : ''}>境内外</option>`,
     ].join('');
@@ -4884,6 +5097,10 @@
         <input class="input" value="${esc(stressPurposeLabel(t?.stressPurpose || 'PBOC'))}" disabled />
       </div>
       <div class="form-row">
+        <label>样本筛选方式</label>
+        <input class="input" value="${esc(sampleFilterLabel(t?.highCarbonFlag))}" disabled />
+      </div>
+      <div class="form-row">
         <label>涉及行业</label>
         <textarea class="textarea" disabled>${esc(getTaskIndustrySummary(t))}</textarea>
       </div>`
@@ -4892,17 +5109,25 @@
         <label class="form-label-with-tip"><span class="form-label-text">${req}压测目的</span>${renderFieldTipBubble(STRESS_PURPOSE_FIELD_TIP)}</label>
         <select class="select" id="d_stressPurpose" ${roOther} onchange="CRST_APP.onStressPurposeChange()">${purposeOpts}</select>
       </div>
-      ${renderIndustryPicker({ readonly })}`;
+      <div class="form-row">
+        <label>${req}样本筛选方式</label>
+        <select class="select" id="d_highCarbonFlag" required ${roOther} onchange="CRST_APP.onSampleFilterModeChange()">
+          <option value="YES" ${sampleFilterMode === 'YES' ? 'selected' : ''}>高碳行业</option>
+          <option value="NO" ${sampleFilterMode === 'NO' ? 'selected' : ''}>非高碳行业</option>
+          <option value="CUSTOM" ${sampleFilterMode === 'CUSTOM' ? 'selected' : ''}>自定义</option>
+        </select>
+      </div>
+      ${renderIndustryPicker({ readonly: readonly || sampleFilterMode !== 'CUSTOM' })}`;
     const basicInfoBlock = displayOnly
       ? `
       <div class="form-grid-2">
         <div class="form-row">
-          <label>财报年份</label>
-          <input class="input" value="${esc(String(getTaskReportYear(t)))}" disabled />
+          <label>基准年</label>
+          <input class="input" value="${esc(String(getTaskBaselineYear(t)))}" disabled />
         </div>
         <div class="form-row">
-          <label>基准年度</label>
-          <input class="input" value="${esc(String(getTaskBaselineYear(t)))}" disabled />
+          <label>财报年份</label>
+          <input class="input" value="${esc(String(getTaskReportYear(t)))}" disabled />
         </div>
       </div>
       <div class="form-grid-2">
@@ -4912,20 +5137,21 @@
         </div>
         <div class="form-row">
           <label>贷款地区</label>
-          <input class="input" value="${esc(LOAN_REGION_LABELS[t?.loanRegion] || '境内（含香港）')}" disabled />
+          <input class="input" value="${esc(LOAN_REGION_LABELS[t?.loanRegion] || '境内')}" disabled />
         </div>
       </div>`
       : `
       <div class="form-grid-2">
         <div class="form-row">
-          <label>${req}财报年份</label>
-          <select class="select" id="d_reportYear" ${roOther}>${yearOpts}</select>
+          <label>${req}基准年</label>
+          <select class="select" id="d_baselineYear" ${roOther} onchange="CRST_APP.onTaskBaselineYearChange()">${baselineYearOpts}</select>
         </div>
         <div class="form-row">
-          <label>${req}基准年度</label>
-          <select class="select" id="d_baselineYear" ${roOther}>${baselineYearOpts}</select>
+          <label>财报年份（系统自动取值）</label>
+          <select class="select" id="d_reportYear" disabled>${yearOpts}</select>
         </div>
       </div>
+      <div class="v11-rule-note">任务开始时间早于当年4月30日时，选取基期上一年经审计的财报数据；例：2026年3月下发任务、基期为2025年，则取2024年财报数据作为2025年数据使用。</div>
       <div class="form-grid-2">
         <div class="form-row">
           <label>${req}贷款类型</label>
@@ -4942,14 +5168,6 @@
         <input class="input" id="d_taskName" placeholder="请输入任务名称" value="${esc(t?.taskName || '')}" ${roName} />
       </div>
       ${basicInfoBlock}
-      <div class="form-row">
-        <label>高碳行业分类</label>
-        <select class="select" id="d_highCarbonFlag" ${roOther}>
-          <option value="AUTO" ${(!t?.highCarbonFlag || t?.highCarbonFlag === 'AUTO') ? 'selected' : ''}>按行业映射关系自动识别（不作为样本筛选条件）</option>
-          <option value="YES" ${t?.highCarbonFlag === 'YES' ? 'selected' : ''}>高碳行业</option>
-          <option value="NO" ${t?.highCarbonFlag === 'NO' ? 'selected' : ''}>非高碳行业</option>
-        </select>
-      </div>
       ${industryBlock}
       <div class="form-row">
         <label>任务说明</label>
@@ -4958,6 +5176,16 @@
   }
 
   function onTaskReportEndChange() {}
+
+  function onTaskBaselineYearChange() {
+    const baselineEl = document.getElementById('d_baselineYear');
+    const reportEl = document.getElementById('d_reportYear');
+    if (!baselineEl || !reportEl) return;
+    const baseline = Number(baselineEl.value);
+    const today = new Date();
+    const beforeApr30 = (today.getMonth() + 1) < 4 || ((today.getMonth() + 1) === 4 && today.getDate() < 30);
+    reportEl.value = String(beforeApr30 ? baseline - 1 : baseline);
+  }
 
   function renderTaskLogList(entityId, isJob) {
     const logs = isJob ? (stressJobLogs[entityId] || []) : (taskLogs[entityId] || []);
@@ -5071,7 +5299,7 @@
   }
 
   function getTaskSyncFilters(t) {
-    if (!t.syncFilters) t.syncFilters = { loanRegion: 'DOMESTIC', loanClasses: [], pdMax: 0.99 };
+    if (!t.syncFilters) t.syncFilters = { loanRegion: 'DOMESTIC', loanClasses: [] };
     return t.syncFilters;
   }
 
@@ -5079,7 +5307,7 @@
     const f = getTaskSyncFilters(t);
     const ro = readonly ? 'disabled' : '';
     const regionOpts = [
-      { value: 'DOMESTIC', label: '境内（含香港）' },
+      { value: 'DOMESTIC', label: '境内' },
       { value: 'OVERSEAS', label: '境外' },
       { value: 'BOTH', label: '境内外' },
     ].map((o) => `<option value="${o.value}" ${f.loanRegion === o.value ? 'selected' : ''}>${o.label}</option>`).join('');
@@ -5095,8 +5323,9 @@
             <select class="select" id="sf_region_${t.id}" ${ro}>${regionOpts}</select>
           </div>
           <div class="form-row">
-            <label>PD值上限</label>
-            <input class="input" id="sf_pdmax_${t.id}" type="number" step="any" min="0" max="1" value="${f.pdMax ?? 0.99}" ${ro} />
+            <label>PD 基期值</label>
+            <input class="input" value="从华夏数仓抓取的基期值" disabled />
+            <span class="field-help">只读展示，不设手工默认值；实际值允许为 1。</span>
           </div>
         </div>
         <div class="form-row">
@@ -5118,12 +5347,9 @@
     if (!t) return;
     const f = getTaskSyncFilters(t);
     f.loanRegion = document.getElementById(`sf_region_${taskId}`)?.value || 'DOMESTIC';
-    f.pdMax = parseFloat(document.getElementById(`sf_pdmax_${taskId}`)?.value);
-    if (!Number.isFinite(f.pdMax)) f.pdMax = 0.99;
-    else f.pdMax = Math.max(0, Math.min(1, f.pdMax));
     f.loanClasses = [...document.querySelectorAll(`input[name="sf_class_${taskId}"]:checked`)].map((el) => el.value);
     t.updatedAt = nowStr();
-    addLog(taskId, `数据同步与确认：更新筛选条件（${loanRegionLabel(f.loanRegion)}，PD≤${f.pdMax}）`);
+    addLog(taskId, `数据同步与确认：更新筛选条件（${loanRegionLabel(f.loanRegion)}，PD取华夏数仓基期值）`);
     toast('筛选条件已保存');
     render();
   }
@@ -5213,7 +5439,7 @@
       addLog(taskId, `行业甄别：${rec.companyName} ${prev} → ${rec.standardIndustry}`);
     });
     if (allDisambigConfirmed(recs)) {
-      t.status = 'PROCESSING';
+      t.industryDisambigCompleted = true;
       addLog(taskId, '行业甄别：全部完成');
     }
     t.updatedAt = nowStr();
@@ -5349,6 +5575,10 @@
         ${dataBanner}
         <h3 class="step-panel-title">财务传导</h3>
         <p class="stress-step-hint">选择压测情景并录入参数，将碳排放/碳费用传导至企业收入、成本与净利润。三种情景在本步骤内多选，不再拆分菜单。</p>
+        <div class="stress-logic-flow">
+          <section class="pd-lgd-result-block"><h4 class="pd-lgd-result-title">1. 财报更新逻辑</h4><p class="flow-hint">按基期财报版本与测试年度更新逐户财务字段，输出财报更新结果。</p></section>
+          <section class="pd-lgd-result-block"><h4 class="pd-lgd-result-title">2. 财务传导</h4><p class="flow-hint">承接财报更新结果，执行碳成本向收入、成本、利润及资产负债率的传导，并在下方展示处理结果。</p></section>
+        </div>
         ${refDataSection}
         <h4 class="step-subtitle step-panel-title-divider">压测情景</h4>
         <div class="checkbox-group scenario-checkbox-group">${checks || '<span class="scenario-check-empty">无已生效压测情景，请联系管理员配置。</span>'}</div>
@@ -5428,15 +5658,19 @@
           });
         }).join('')
         : '';
+      const yearlyData = buildNplProvDisplayData(t, '');
       return `
         ${dataBanner}
         <h3 class="step-panel-title">不良和拨备计算</h3>
         <p class="stress-step-hint">特殊客户及无财报客户保持基期分类；高碳且非特殊客户首次触发违约规则时计入不良。同一客户存在不同投向时取最早违约年份。非特殊客户拨备按“基期业务余额 × PDt × LGDt”计算，特殊客户拨备保持基期值。</p>
+        <div class="v11-rule-note">不良贷款生成率_t =（当年末不良贷款余额 − 上年末不良贷款余额）/ 当年期初正常类贷款余额 × 100%。按行业、子行业、情景和年份展示；基准年不计算生成率。</div>
         ${canEditStressSection(t, 3) ? `<div class="toolbar step-panel-actions" style="margin-top:12px">
           ${stressEditOnly ? '<button class="btn btn-default" onclick="CRST_APP.cancelEditTask()">取消编辑</button>' : ''}
           <button class="btn btn-primary" onclick="CRST_APP.runStressPipelineStep(${entityId}, 'nplProv')">${t.nplProvDone ? '重新执行不良与拨备计算' : '执行不良与拨备计算'}</button>
         </div>` : ''}
         ${previewSummary}
+        ${t.nplProvDone ? renderNplGenerationYearlyTable(t, yearlyData, { tableId: `npl-generation-yearly-${entityId}` }) : ''}
+        ${t.nplProvDone ? renderNplProvYearlyTable(t, yearlyData, { tableId: `npl-prov-yearly-${entityId}` }) : ''}
         ${t.nplProvDone && !stressEditOnly ? `<div class="step-footer">
           <button type="button" class="btn btn-primary" onclick="CRST_APP.runStressPipelineStep(${entityId}, 'results')">生成客户及行业分项结果与汇总表</button>
           ${t.status === 'COMPLETED' ? `<button type="button" class="btn btn-default" onclick="CRST_APP.viewStressResults(${entityId})">查看结果</button>` : ''}
@@ -5544,7 +5778,7 @@
       }) : '';
       const bankBasicSection = hasGeneratedBaseTable(t, 2) ? `${renderBankBasicInfoTable(t)}${renderBankCapitalMetricsSection(t)}` : '';
       const highCarbonSection = hasGeneratedBaseTable(t, 3) ? renderHighCarbonCustomerTable(t, filteredRecs, viewOnly) : '';
-      const industryLoanSection = hasGeneratedBaseTable(t, 4) ? renderIndustryLoanTable(t, filteredRecs, viewOnly) : '';
+      const industryLoanSection = hasGeneratedBaseTable(t, 4) ? renderIndustryLoanTable(t, recs, viewOnly) : '';
       const totalCount = t.syncStats?.total ?? recs.length;
       const syncSummaryText = `同步条数：${totalCount}条`;
 
@@ -5563,23 +5797,24 @@
 
       panel += `
         <p class="sync-summary-text">${syncSummaryText}</p>
-        <div class="toolbar step-toolbar-top sync-action-toolbar sync-action-toolbar--ten">
+        <div class="toolbar step-toolbar-top sync-action-toolbar sync-action-toolbar--eleven">
           <div class="sync-action-item">
             <span class="sync-action-index" aria-hidden="true">1</span>
             <button type="button" class="btn btn-primary" ${canEnableDataSyncStep(t, 1, t.id, syncDisabled) ? '' : 'disabled'} onclick="CRST_APP.syncLoanData(${t.id})">同步贷款数据</button>
           </div>
-          <div class="sync-action-item"><span class="sync-action-index" aria-hidden="true">2</span><button type="button" class="btn btn-primary" ${canEnableDataSyncStep(t, 2, t.id, syncDisabled) ? '' : 'disabled'} onclick="CRST_APP.syncInternalRatingData(${t.id})">同步内部评级数据</button></div>
-          <div class="sync-action-item"><span class="sync-action-index" aria-hidden="true">3</span><button type="button" class="btn btn-primary" ${canEnableDataSyncStep(t, 3, t.id, syncDisabled) ? '' : 'disabled'} onclick="CRST_APP.syncFinancial(${t.id})">同步财务数据</button></div>
-          <div class="sync-action-item"><span class="sync-action-index" aria-hidden="true">4</span><button type="button" class="btn btn-primary" ${canEnableDataSyncStep(t, 4, t.id, syncDisabled) ? '' : 'disabled'} onclick="CRST_APP.syncEclData(${t.id})">同步预期信用损失数据</button></div>
-          <div class="sync-action-item"><span class="sync-action-index" aria-hidden="true">5</span><button type="button" class="btn btn-primary" ${canEnableDataSyncStep(t, 5, t.id, syncDisabled) ? '' : 'disabled'} onclick="CRST_APP.syncGelanData(${t.id})">同步格澜数据</button></div>
-          <div class="sync-action-item"><span class="sync-action-index" aria-hidden="true">6</span><button type="button" class="btn btn-default" ${canEnableDataSyncStep(t, 6, t.id, syncDisabled) ? '' : 'disabled'} onclick="CRST_APP.generateBaseTable(${t.id}, 'customerBasic')">生成参试客户基础信息表</button></div>
-          <div class="sync-action-item"><span class="sync-action-index" aria-hidden="true">7</span><button type="button" class="btn btn-default" ${canEnableDataSyncStep(t, 7, t.id, syncDisabled) ? '' : 'disabled'} onclick="CRST_APP.generateBaseTable(${t.id}, 'customerFinancial')">生成参试客户基期财务数据表</button></div>
-          <div class="sync-action-item"><span class="sync-action-index" aria-hidden="true">8</span><button type="button" class="btn btn-default" ${canEnableDataSyncStep(t, 8, t.id, syncDisabled) ? '' : 'disabled'} onclick="CRST_APP.generateBaseTable(${t.id}, 'bankBasic')">生成参试银行基础信息表</button></div>
-          <div class="sync-action-item"><span class="sync-action-index" aria-hidden="true">9</span><button type="button" class="btn btn-default" ${canEnableDataSyncStep(t, 9, t.id, syncDisabled) ? '' : 'disabled'} onclick="CRST_APP.generateBaseTable(${t.id}, 'highCarbonCustomer')">生成高碳行业客户基础信息表</button></div>
-          <div class="sync-action-item"><span class="sync-action-index" aria-hidden="true">10</span><button type="button" class="btn btn-default" ${canEnableDataSyncStep(t, 10, t.id, syncDisabled) ? '' : 'disabled'} onclick="CRST_APP.generateBaseTable(${t.id}, 'industryLoan')">生成分行业贷款信息表</button></div>
+          <div class="sync-action-item"><span class="sync-action-index" aria-hidden="true">2</span><button type="button" class="btn btn-primary" ${canEnableDataSyncStep(t, 2, t.id, syncDisabled) ? '' : 'disabled'} onclick="CRST_APP.openIndustryEditModal(${t.id})">人工甄别归类高碳行业</button></div>
+          <div class="sync-action-item"><span class="sync-action-index" aria-hidden="true">3</span><button type="button" class="btn btn-primary" ${canEnableDataSyncStep(t, 3, t.id, syncDisabled) ? '' : 'disabled'} onclick="CRST_APP.syncInternalRatingData(${t.id})">同步内部评级数据</button></div>
+          <div class="sync-action-item"><span class="sync-action-index" aria-hidden="true">4</span><button type="button" class="btn btn-primary" ${canEnableDataSyncStep(t, 4, t.id, syncDisabled) ? '' : 'disabled'} onclick="CRST_APP.syncFinancial(${t.id})">同步财务数据</button></div>
+          <div class="sync-action-item"><span class="sync-action-index" aria-hidden="true">5</span><button type="button" class="btn btn-primary" ${canEnableDataSyncStep(t, 5, t.id, syncDisabled) ? '' : 'disabled'} onclick="CRST_APP.syncEclData(${t.id})">同步预期信用损失数据</button></div>
+          <div class="sync-action-item"><span class="sync-action-index" aria-hidden="true">6</span><button type="button" class="btn btn-primary" ${canEnableDataSyncStep(t, 6, t.id, syncDisabled) ? '' : 'disabled'} onclick="CRST_APP.syncGelanData(${t.id})">同步格澜数据</button></div>
+          <div class="sync-action-item"><span class="sync-action-index" aria-hidden="true">7</span><button type="button" class="btn btn-default" ${canEnableDataSyncStep(t, 7, t.id, syncDisabled) ? '' : 'disabled'} onclick="CRST_APP.generateBaseTable(${t.id}, 'customerBasic')">生成参试客户基础信息表</button></div>
+          <div class="sync-action-item"><span class="sync-action-index" aria-hidden="true">8</span><button type="button" class="btn btn-default" ${canEnableDataSyncStep(t, 8, t.id, syncDisabled) ? '' : 'disabled'} onclick="CRST_APP.generateBaseTable(${t.id}, 'customerFinancial')">生成参试客户基期财务数据表</button></div>
+          <div class="sync-action-item"><span class="sync-action-index" aria-hidden="true">9</span><button type="button" class="btn btn-default" ${canEnableDataSyncStep(t, 9, t.id, syncDisabled) ? '' : 'disabled'} onclick="CRST_APP.generateBaseTable(${t.id}, 'bankBasic')">生成参试银行基础信息表</button></div>
+          <div class="sync-action-item"><span class="sync-action-index" aria-hidden="true">10</span><button type="button" class="btn btn-default" ${canEnableDataSyncStep(t, 10, t.id, syncDisabled) ? '' : 'disabled'} onclick="CRST_APP.generateBaseTable(${t.id}, 'highCarbonCustomer')">生成高碳行业客户基础信息表</button></div>
+          <div class="sync-action-item"><span class="sync-action-index" aria-hidden="true">11</span><button type="button" class="btn btn-default" ${canEnableDataSyncStep(t, 11, t.id, syncDisabled) ? '' : 'disabled'} onclick="CRST_APP.generateBaseTable(${t.id}, 'industryLoan')">生成分行业贷款信息表</button></div>
         </div>
-        <div class="v11-rule-note">处理顺序：贷款数据 → 内部评级数据 → 财务数据 → 预期信用损失数据 → 格澜数据 → 参试客户基础信息表 → 参试客户基期财务数据表 → 参试银行基础信息表 → 高碳行业客户基础信息表 → 分行业贷款信息表。</div>
-        ${renderSyncFilterPanel(t, viewOnly || !!t.baseTablesGenerated)}
+        <div class="v11-rule-note"><strong>人工甄别口径：</strong>内置8大高碳行业，以34个 GB 四级代码定位并人工确认19个测试行业，确认后统一采用人行测试口径。易混行业：①平板玻璃、平板玻璃（仅浮法）→ C3041；②开采/采购原油加工炼化→ C2511；③造纸（生活用纸/其他）→ C2211 / C2212 / C2221。</div>
+        <div class="v11-rule-note">处理顺序：同步贷款数据 → 人工甄别归类高碳行业 → 同步内部评级数据 → 同步财务数据 → 同步预期信用损失数据 → 同步格澜数据 → 依次生成五张基础信息表。</div>
         <div class="sync-list-filter">
           <label class="sync-list-filter-label" for="sync_status_${t.id}">状态</label>
           <select class="select sync-status-select" id="sync_status_${t.id}" ${viewOnly ? 'disabled' : ''} onchange="CRST_APP.setSyncStatusFilter(${t.id}, this.value)">${statusFilterOpts}</select>
@@ -5612,8 +5847,8 @@
         <div class="desc-grid stress-data-banner" style="margin-bottom:16px">
           <div class="desc-item"><span class="k">数据来源</span><span>${stressDataSourceTag(t.dataSource)} ${t.dataSource === 'REF' ? esc(t.sourceTaskName || '-') : 'Excel 导入'}</span></div>
           <div class="desc-item"><span class="k">数据条数</span><span>${t.recordCount?.toLocaleString()} 条（可用 ${t.usableCount?.toLocaleString()}）</span></div>
-          <div class="desc-item"><span class="k">基准年度</span><span>${t.reportYear || '-'}</span></div>
-          <div class="desc-item"><span class="k">贷款类型</span><span>${t.loanType === 'CORPORATE' ? '对公' : t.loanType === 'PERSONAL' ? '个人' : '-'}</span></div>
+          <div class="desc-item"><span class="k">基准年度</span><span>${t.baselineYear ?? t.reportYear ?? '-'}</span></div>
+          <div class="desc-item"><span class="k">贷款类型</span><span>${t.loanType === 'CORPORATE' ? '对公' : t.loanType === 'PERSONAL_BUSINESS' ? '个人经营性贷款' : t.loanType === 'PERSONAL' ? '个人贷款' : '-'}</span></div>
         </div>` : '';
       if (!stressEditOnly && !isJob && readyForStress) {
         if (!t.creditFetched) fetchCredit(entityId, { silent: true });
@@ -7201,9 +7436,12 @@
   }
 
   function renderFactors() {
-    const table = renderPagedTable('factors', factors,
-      '<tr><th>因子名称</th><th>数值</th><th>单位</th><th>行业名称</th><th>更新人</th><th>更新时间</th><th>操作</th></tr>',
+    const filteredFactors = factors.filter((f) => (f.factorScope || 'INDUSTRY') === factorScopeFilter);
+    const table = renderPagedTable('factors', filteredFactors,
+      '<tr><th>因子类型</th><th>客户名称</th><th>因子名称</th><th>数值</th><th>单位</th><th>行业名称</th><th>更新人</th><th>更新时间</th><th>操作</th></tr>',
       (f) => `<tr>
+      <td>${(f.factorScope || 'INDUSTRY') === 'CUSTOMER' ? '客户实际因子' : '行业因子'}</td>
+      <td>${esc(f.customerName || '-')}</td>
       <td>${esc(f.factorName)}</td>
       <td class="num">${f.factorValue}</td>
       <td>${esc(f.unit)}</td>
@@ -7211,15 +7449,22 @@
       <td>${esc(f.updatedBy || '总行管理员')}</td>
       <td>${esc(f.updatedAt || '-')}</td>
       <td><div class="action-group">${factorActions(f)}</div></td>
-    </tr>`, 7);
+    </tr>`, 9);
     return `
       <div class="card">
         <div class="toolbar">
           <h2 class="page-title">高碳行业因子库</h2>
-          <button class="btn btn-primary" onclick="CRST_APP.openFactorModal('create')">新增因子</button>
+          <button class="btn btn-primary" onclick="CRST_APP.openFactorModal('create', null, '${factorScopeFilter}')">新增${factorScopeFilter === 'CUSTOMER' ? '客户实际' : '行业'}因子</button>
         </div>
+        <div class="filter-bar"><button class="btn ${factorScopeFilter === 'INDUSTRY' ? 'btn-primary' : 'btn-default'}" onclick="CRST_APP.setFactorScopeFilter('INDUSTRY')">行业因子</button><button class="btn ${factorScopeFilter === 'CUSTOMER' ? 'btn-primary' : 'btn-default'}" onclick="CRST_APP.setFactorScopeFilter('CUSTOMER')">客户实际因子</button></div>
         ${table}
       </div>`;
+  }
+
+  function setFactorScopeFilter(scope) {
+    factorScopeFilter = scope === 'CUSTOMER' ? 'CUSTOMER' : 'INDUSTRY';
+    getListPager('factors').page = 1;
+    render();
   }
 
   /* —— 场景计算方法 —— */
@@ -7320,24 +7565,24 @@
   function renderAirportThroughput() {
     const editing = airportThroughputRows.find((r) => r.id === airportThroughputEditId);
     const table = renderPagedTable('airport-throughput', airportThroughputRows,
-      '<tr><th>机场企业</th><th>机场代码</th><th>年份</th><th>旅客吞吐量(万人次)</th><th>货邮吞吐量(万吨)</th><th>数据来源</th><th>更新时间</th><th>操作</th></tr>',
+      '<tr><th>机场企业</th><th>机场代码</th><th>年份</th><th>旅客吞吐量(万人次)</th><th>数据来源</th><th>更新时间</th><th>操作</th></tr>',
       (r) => `<tr>
         <td>${esc(r.airportName)}</td><td>${esc(r.airportCode)}</td><td>${esc(r.year)}</td>
-        <td>${Number(r.passengerThroughput).toLocaleString()}</td><td>${Number(r.cargoThroughput).toLocaleString()}</td>
+        <td>${Number(r.passengerThroughput).toLocaleString()}</td>
         <td>${esc(r.source)}</td><td>${esc(r.updatedAt)}</td>
         <td><div class="action-group">${airportThroughputActions(r)}</div></td>
-      </tr>`, 8);
+      </tr>`, 7);
     return `
       <div class="card">
         <div class="toolbar">
           <h2 class="page-title">机场吞吐量维护</h2>
         </div>
+        <p class="flow-hint">维护机场企业分年度旅客吞吐量，支持新增、编辑、删除，作为航空业碳排传导参数。</p>
         <div class="form-grid-2">
           <div class="form-row"><label><span class="req">*</span>机场企业</label><input class="input" id="ap_name" value="${esc(editing?.airportName || '')}" placeholder="如 华南机场运营有限公司" /></div>
           <div class="form-row"><label><span class="req">*</span>机场代码</label><input class="input" id="ap_code" value="${esc(editing?.airportCode || '')}" placeholder="如 CAN" /></div>
           <div class="form-row"><label><span class="req">*</span>年份</label><input class="input" id="ap_year" type="number" value="${esc(editing?.year || 2024)}" /></div>
           <div class="form-row"><label><span class="req">*</span>旅客吞吐量（万人次）</label><input class="input" id="ap_passenger" type="number" step="0.01" value="${esc(editing?.passengerThroughput ?? '')}" /></div>
-          <div class="form-row"><label>货邮吞吐量（万吨）</label><input class="input" id="ap_cargo" type="number" step="0.01" value="${esc(editing?.cargoThroughput ?? '')}" /></div>
           <div class="form-row"><label>数据来源</label><input class="input" id="ap_source" value="${esc(editing?.source || '机场运营数据接口')}" /></div>
         </div>
         <div class="toolbar step-panel-actions">
@@ -8760,11 +9005,21 @@
     return `
       ${opts.showFilterBar !== false ? renderPdLgdFilterBar(state) : ''}
 
+      <section class="pd-lgd-result-block pd-lgd-logic-block">
+        <h4 class="pd-lgd-result-title">PD计算逻辑（针对非特殊客户）</h4>
+        <p class="flow-hint">根据财务传导结果计算逐年 PD 及行业 PD 乘数；特殊客户保持基期口径，不参与本逻辑。</p>
+      </section>
+
       ${yearlySection}
 
       <section class="pd-lgd-result-block">
         ${renderPdLgdBlockHead(industryMultTitle, industryMultExportId)}
         ${renderPdLgdIndustryMultiplierTable(job, bundle.industryMultipliers)}
+      </section>
+
+      <section class="pd-lgd-result-block pd-lgd-logic-block">
+        <h4 class="pd-lgd-result-title">LGD计算逻辑（针对非特殊客户）</h4>
+        <p class="flow-hint">按非特殊客户担保、行业及测试期状态独立计算逐年 LGD；无内评/无财报客户承接预期信用损失补录值。</p>
       </section>
 
       <section class="pd-lgd-result-block">
@@ -8898,6 +9153,8 @@
       return `
         <div class="card">
           <div class="toolbar"><h2 class="page-title">参试客户测试期财务数据表</h2></div>
+          <section class="pd-lgd-result-block"><h4 class="pd-lgd-result-title">1. 财报更新逻辑</h4><p class="flow-hint">更新测试期逐户财务字段并形成处理结果。</p></section>
+          <section class="pd-lgd-result-block"><h4 class="pd-lgd-result-title">2. 财务传导</h4><p class="flow-hint">承接财报更新结果，执行碳成本向收入、成本、利润及资产负债率的传导。</p></section>
           <div class="empty fin-trans-empty">暂无逐户判定结果。请先在「分项计算」中依次完成情景导入、特殊客户导入和财务传导。</div>
         </div>`;
     }
@@ -8911,6 +9168,8 @@
     return `
       <div class="card">
         <div class="toolbar"><h2 class="page-title">参试客户测试期财务数据表</h2></div>
+        <section class="pd-lgd-result-block"><h4 class="pd-lgd-result-title">1. 财报更新逻辑</h4><p class="flow-hint">更新测试期逐户财务字段并形成处理结果。</p></section>
+        <section class="pd-lgd-result-block"><h4 class="pd-lgd-result-title">2. 财务传导</h4><p class="flow-hint">承接财报更新结果，执行碳成本向收入、成本、利润及资产负债率的传导。</p></section>
         ${renderFinTransFilterBar(state)}
         ${adjustmentTable}
       </div>`;
@@ -8937,11 +9196,81 @@
       `<tr><th rowspan="2">客户名称</th>${scenarioHead}${yearGroupHead}</tr><tr>${yearSubHead}</tr>`,
       (r) => {
         const scCell = showScenario ? `<td>${esc(r.scenarioName || scenarioLabel(r.scenarioCode))}</td>` : '';
-        const yearCells = years.map((y) =>
-          `<td class="num">${formatNplProvAmount(r.nplByYear?.[y])}</td><td class="num">${formatNplProvAmount(r.provByYear?.[y])}</td>`).join('');
+        const yearCells = years.map((y) => `<td class="num">${formatNplProvAmount(Number(r.nplByYear?.[y] || 0))}</td><td class="num">${formatNplProvAmount(r.provByYear?.[y])}</td>`).join('');
         return `<tr><td>${esc(r.companyName)}</td>${scCell}${yearCells}</tr>`;
       },
       Math.max(6, colCount));
+  }
+
+  /** 生成率是组合指标；同一行业、情景和年份的分子分母必须使用相同客户范围。 */
+  function buildNplGenerationYearlyRows(job, data) {
+    const baseYear = getTaskReportYear(job);
+    const testYears = [...new Set((data.years || []).map(Number).filter((year) => Number.isFinite(year) && year > baseYear))]
+      .sort((a, b) => a - b);
+    const scenarioCodes = [...new Set((data.rows || []).map((row) => row.scenarioCode || data.scenarioCode).filter(Boolean))];
+    const context = getSummaryJobContext(job);
+    const records = [...new Map((stressRecordsByJob[job.id] || entityRecords(job.id, job))
+      .filter((record) => record.companyName)
+      .map((record) => [record.companyName, record])).values()];
+    const defaultRows = getNplProvPreviewRows(job);
+    const rows = [];
+    scenarioCodes.forEach((scenarioCode) => {
+      const firstDefaultYear = new Map();
+      defaultRows.filter((row) => row.scenarioCode === scenarioCode).forEach((row) => {
+        const year = Number(row.testYear);
+        if (!Number.isFinite(year)) return;
+        const previous = firstDefaultYear.get(row.companyName);
+        if (previous == null || year < previous) firstDefaultYear.set(row.companyName, year);
+      });
+      PBOC_INDUSTRY_ROW_SPECS.forEach((spec) => {
+        const members = records.filter((record) => matchPbocSummaryRow(record, spec, job));
+        if (!members.length) return;
+        const loanBalance = (record) => Number(context?.creditMap?.[record.companyName]?.loanBalance ?? record.loanBalance) || 0;
+        const baselineNpl = members.reduce((sum, record) => sum + (analysisIsNplClass(record.loanClassification) ? loanBalance(record) : 0), 0);
+        let previousNpl = baselineNpl;
+        const ratesByYear = { [baseYear]: null };
+        const openingNormalByYear = {};
+        const previousNplByYear = {};
+        const nplByYear = { [baseYear]: baselineNpl };
+        testYears.forEach((year) => {
+          const openingNormal = members.reduce((sum, record) => {
+            if (record.loanClassification !== 'NORMAL') return sum;
+            const defaultYear = firstDefaultYear.get(record.companyName);
+            return sum + (defaultYear == null || defaultYear >= year ? loanBalance(record) : 0);
+          }, 0);
+          const newNpl = members.reduce((sum, record) => {
+            if (analysisIsNplClass(record.loanClassification)) return sum;
+            return sum + (firstDefaultYear.get(record.companyName) === year ? loanBalance(record) : 0);
+          }, 0);
+          const currentNpl = previousNpl + newNpl;
+          openingNormalByYear[year] = openingNormal;
+          previousNplByYear[year] = previousNpl;
+          nplByYear[year] = currentNpl;
+          ratesByYear[year] = openingNormal > 0 ? (currentNpl - previousNpl) / openingNormal * 100 : null;
+          previousNpl = currentNpl;
+        });
+        rows.push({ scenarioCode, major: spec.major, sub: spec.sub || '—', ratesByYear, openingNormalByYear, previousNplByYear, nplByYear });
+      });
+    });
+    return { baseYear, testYears, rows };
+  }
+
+  function renderNplGenerationYearlyTable(job, data, opts = {}) {
+    const { baseYear, testYears, rows } = buildNplGenerationYearlyRows(job, data);
+    if (!rows.length || !testYears.length) return '';
+    const years = [baseYear, ...testYears];
+    const tableId = opts.tableId || `npl-generation-${job.id}`;
+    const head = `<tr><th>情景</th><th>行业名称（大类）</th><th>子行业</th>${years.map((year) => `<th class="num">${year}年${year === baseYear ? '（基准）' : ''}</th>`).join('')}</tr>`;
+    const table = renderPagedTable(tableId, rows, head, (row) => {
+      const cells = years.map((year) => {
+        const rate = row.ratesByYear[year];
+        const value = Number.isFinite(rate) ? `${rate.toFixed(2)}%` : '—';
+        const detail = year === baseYear ? '基准年不计算生成率' : `当年不良余额：${row.nplByYear[year]}万元；上年不良余额：${row.previousNplByYear[year]}万元；当年期初正常类贷款：${row.openingNormalByYear[year]}万元`;
+        return `<td class="num" title="${esc(detail)}">${value}</td>`;
+      }).join('');
+      return `<tr><td>${esc(scenarioLabel(row.scenarioCode))}</td><td>${esc(row.major).replace(/\n/g, '<br>')}</td><td>${esc(row.sub).replace(/\n/g, '<br>')}</td>${cells}</tr>`;
+    }, Math.max(6, 3 + years.length));
+    return `<section class="result-section" style="margin-top:20px"><div class="result-section-hd"><h4 class="result-section-title">不良贷款生成率年度结果（内部展示）</h4></div><p class="stress-step-hint">按情景、行业、子行业汇总；只以当年期初正常类贷款为分母。基准年显示“—”；期初正常类贷款为 0 时显示“—”。悬停数值可查看当年不良余额及分母。本表不改变人行外报表字段。</p>${table}</section>`;
   }
 
   function renderNplProvResultsPage() {
@@ -8961,6 +9290,9 @@
       <div class="card">
         <div class="toolbar"><h2 class="page-title">不良和拨备计算</h2></div>
         ${renderNplProvFilterBar(state)}
+        <div class="v11-rule-note">不良贷款生成率_t =（当年末不良贷款余额 − 上年末不良贷款余额）/ 当年期初正常类贷款余额 × 100%。按行业、子行业、情景和年份展示；基准年不计算生成率。</div>
+        ${job ? renderNplGenerationYearlyTable(job, state.data, { tableId: `npl-generation-results-${job.id}` }) : ''}
+        ${job ? renderNplProvYearlyTable(job, state.data, { tableId: `npl-prov-results-${job.id}` }) : ''}
         ${tables || '<div class="empty" style="padding:24px 0">当前筛选下暂无不良和拨备汇总数据</div>'}
       </div>`;
   }
@@ -9202,6 +9534,7 @@
 
   function resetStressImportFiles() {
     stressImportFiles = {};
+    stressImportValidation = {};
     STRESS_IMPORT_FILE_SPECS.forEach((spec) => {
       const hint = document.getElementById(`sj_import_hint_${spec.key}`);
       const row = document.getElementById(`sj_import_row_${spec.key}`);
@@ -9217,8 +9550,10 @@
 
   function validateStressImportFiles() {
     const missing = STRESS_IMPORT_FILE_SPECS.filter((spec) => !stressImportFiles[spec.key]);
-    if (!missing.length) return { ok: true };
-    return { ok: false, msg: `请上传：${missing.map((s) => s.label).join('、')}` };
+    if (missing.length) return { ok: false, msg: `请上传：${missing.map((s) => s.label).join('、')}` };
+    const invalid = STRESS_IMPORT_FILE_SPECS.filter((spec) => !stressImportValidation[spec.key]?.valid);
+    if (invalid.length) return { ok: false, msg: `模板校验未通过：${invalid.map((s) => s.label).join('、')}` };
+    return { ok: true };
   }
 
   function openCreateStressJobModal(fromPage, presetSourceTaskId) {
@@ -9251,11 +9586,12 @@
     const spec = STRESS_IMPORT_FILE_SPECS.find((s) => s.key === key);
     if (!spec) return;
     stressImportFiles[key] = spec.fileName;
+    stressImportValidation[key] = { valid: true, message: '模板字段校验通过' };
     const hint = document.getElementById(`sj_import_hint_${key}`);
     const row = document.getElementById(`sj_import_row_${key}`);
     const btn = row?.querySelector('.btn-upload');
     if (hint) {
-      hint.textContent = spec.fileName;
+      hint.textContent = `${spec.fileName} · 模板字段校验通过`;
       hint.hidden = false;
     }
     if (row) row.classList.add('is-uploaded');
@@ -9313,7 +9649,7 @@
       const end = `${new Date().getFullYear()}-12-31`;
       const start = `${new Date().getFullYear()}-01-01`;
       const count = 500;
-      const tpl = cloneFinancialRecords(mockSyncRecords(0, { syncFilters: { loanRegion: 'DOMESTIC', loanClasses: [], pdMax: 0.99 } }), Math.min(count, 5000));
+      const tpl = cloneFinancialRecords(mockSyncRecords(0, { syncFilters: { loanRegion: 'DOMESTIC', loanClasses: [] } }), Math.min(count, 5000));
       stressRecordsByJob[jobId] = tpl;
       job = {
         id: jobId,
@@ -9329,6 +9665,7 @@
         reportPeriodEnd: end,
         dataCaliber: '05财报',
         importFiles: { ...stressImportFiles },
+        importValidation: JSON.parse(JSON.stringify(stressImportValidation)),
         status: 'READY',
         factorVersion: suggestFactorVersionByReportEnd(end),
         scenarioVersion: getPublishedScenarioVersion(),
@@ -9341,7 +9678,7 @@
         createdAt: nowStr(),
         updatedAt: nowStr(),
       };
-      addStressJobLog(jobId, `新建压测任务：导入与数据处理结果一致的 5 张基础表（客户基础 ${tpl.length.toLocaleString()} 条）`);
+      addStressJobLog(jobId, `新建压测任务：导入参试客户基础信息表、参试客户基期财务数据表、华夏银行基础数据采集表（外报）（客户基础 ${tpl.length.toLocaleString()} 条）`);
     }
     job.selectedScenarioCodes = STRESS_SCENARIO_OPTIONS.map((s) => s.code);
     stressJobs.unshift(job);
@@ -9730,7 +10067,6 @@
     const airportCode = document.getElementById('ap_code').value.trim().toUpperCase();
     const year = parseInt(document.getElementById('ap_year').value, 10);
     const passengerThroughput = parseFloat(document.getElementById('ap_passenger').value);
-    const cargoThroughput = parseFloat(document.getElementById('ap_cargo').value) || 0;
     const source = document.getElementById('ap_source').value.trim() || '手工维护';
     if (!airportName || !airportCode || !year || !Number.isFinite(passengerThroughput)) {
       toast('请填写机场企业、机场代码、年份和旅客吞吐量', 'error');
@@ -9741,7 +10077,6 @@
       airportCode,
       year,
       passengerThroughput,
-      cargoThroughput,
       source,
       status: 'ENABLED',
       updatedAt: new Date().toISOString().slice(0, 10),
@@ -9807,7 +10142,7 @@
       baselineYear: document.getElementById('d_baselineYear')?.value || '2025',
       loanType: document.getElementById('d_loanType')?.value || 'CORPORATE',
       loanRegion: document.getElementById('d_loanRegion')?.value || 'DOMESTIC',
-      highCarbonFlag: document.getElementById('d_highCarbonFlag')?.value || 'AUTO',
+      highCarbonFlag: document.getElementById('d_highCarbonFlag')?.value || '',
       stressPurpose: document.getElementById('d_stressPurpose')?.value || industryPickerState?.purpose || 'PBOC',
       selectedIndustryCodes: readSelectedIndustryCodes(),
       desc: document.getElementById('d_desc')?.value || '',
@@ -9818,7 +10153,8 @@
     const { name, reportYear, baselineYear, loanType, loanRegion, highCarbonFlag, stressPurpose, selectedIndustryCodes, desc } = readTaskFormFields();
 
     if (taskDraftMode) {
-      if (!name || !reportYear || !baselineYear || !loanType || !loanRegion) { toast('请填写必填项', 'error'); return; }
+      if (!name || !reportYear || !baselineYear || !loanType || !loanRegion || !highCarbonFlag) { toast('请填写必填项', 'error'); return; }
+      if (!selectedIndustryCodes.length) { toast(highCarbonFlag === 'CUSTOM' ? '请自行勾选涉及行业' : '请选择样本筛选方式', 'error'); return; }
       const createdId = ++nextId.task;
       tasks.unshift({
         id: createdId,
@@ -9832,7 +10168,7 @@
         stressPurpose,
         selectedIndustryCodes,
         description: desc,
-        syncFilters: { loanRegion, loanClasses: [], pdMax: 0.99 },
+        syncFilters: { loanRegion, loanClasses: [] },
         status: 'DRAFT',
         createdAt: nowStr(),
         updatedAt: nowStr(),
@@ -9854,16 +10190,17 @@
       if (!name) { toast('请填写任务名称', 'error'); return; }
       t.taskName = name;
       if (!hasTaskFinancialDataSynced(t)) {
-        if (!reportYear || !baselineYear || !loanType || !loanRegion) { toast('请填写必填项', 'error'); return; }
+        if (!reportYear || !baselineYear || !loanType || !loanRegion || !highCarbonFlag) { toast('请填写必填项', 'error'); return; }
+        if (!selectedIndustryCodes.length) { toast(highCarbonFlag === 'CUSTOM' ? '请自行勾选涉及行业' : '请选择样本筛选方式', 'error'); return; }
         t.reportYear = Number(reportYear);
         t.baselineYear = Number(baselineYear);
         t.loanType = loanType;
         t.loanRegion = loanRegion;
-        t.highCarbonFlag = document.getElementById('d_highCarbonFlag')?.value || 'AUTO';
+        t.highCarbonFlag = highCarbonFlag;
         t.stressPurpose = stressPurpose;
         t.selectedIndustryCodes = selectedIndustryCodes;
         t.description = desc;
-        if (!t.syncFilters) t.syncFilters = { loanRegion, loanClasses: [], pdMax: 0.99 };
+        if (!t.syncFilters) t.syncFilters = { loanRegion, loanClasses: [] };
         else t.syncFilters.loanRegion = loanRegion;
       }
       t.updatedAt = nowStr();
@@ -9935,15 +10272,30 @@
   function getTaskSelectedIndustryCodes(t) {
     const IS = getIndustrySelector();
     if (!IS) return [];
-    return t?.selectedIndustryCodes?.length
-      ? t.selectedIndustryCodes
-      : (t?.stressPurpose === 'PBOC' ? IS.getPbocDefaultCodes() : []);
+    const sampleFilterMode = normalizeSampleFilterMode(t?.highCarbonFlag);
+    return sampleFilterMode === 'YES'
+      ? IS.getPbocDefaultCodes()
+      : sampleFilterMode === 'NO'
+        ? (IS.getNonHighCarbonCodes?.() || [])
+        : (t?.selectedIndustryCodes || []);
+  }
+
+  function isRecordHighCarbonIndustry(record) {
+    const gb = record?.gbIndustryCode || '';
+    const IS = getIndustrySelector();
+    if (gb && IS?.PBOC_INDUSTRY_LEAVES?.some((item) => item.code === gb || gb.startsWith(item.code))) return true;
+    return !!window.CRST_CARBON?.isHighCarbonIndustry?.(record?.standardIndustry, gb);
   }
 
   function recordMatchesTaskIndustries(record, t) {
     const codes = getTaskSelectedIndustryCodes(t);
     if (!codes.length) return true;
     const gb = record.gbIndustryCode || '';
+    const nonHighCarbonCodes = codes.filter((code) => code.startsWith('NONHC_'));
+    if (nonHighCarbonCodes.length && !isRecordHighCarbonIndustry(record)) {
+      if (!gb) return true;
+      if (nonHighCarbonCodes.some((code) => code.slice(-1) === gb.charAt(0))) return true;
+    }
     if (gb && codes.some((c) => gb === c || gb.startsWith(c) || c.startsWith(gb))) return true;
     const major = resolveTestIndustryMajor(record.standardIndustry, record.gbIndustryCode);
     const IS = getIndustrySelector();
@@ -9959,7 +10311,10 @@
   function filterSyncRecordsByTaskOverview(rows, t) {
     let filtered = rows.slice();
     if (t?.loanRegion && t.loanRegion !== 'BOTH') filtered = filtered.filter((r) => r.loanRegion === t.loanRegion);
-    // V1.1：投融资压测覆盖全部行业，高碳行业只作为结果分类，不再作为同步样本筛选条件。
+    const sampleFilterMode = normalizeSampleFilterMode(t?.highCarbonFlag);
+    if (sampleFilterMode === 'YES') filtered = filtered.filter(isRecordHighCarbonIndustry);
+    else if (sampleFilterMode === 'NO') filtered = filtered.filter((r) => !isRecordHighCarbonIndustry(r));
+    else filtered = filtered.filter((r) => recordMatchesTaskIndustries(r, t));
     return filtered;
   }
 
@@ -10017,9 +10372,9 @@
     const t = getTask(id);
     if (!t || t.status !== 'DRAFT' || t.loanDataSynced) return;
     const loanTypeLabel = t.loanType === 'PERSONAL_BUSINESS' ? '个人经营性贷款' : t.loanType === 'PERSONAL' ? '个人贷款' : '对公（含普惠）';
-    const regionLabel = LOAN_REGION_LABELS[t.loanRegion] || '境内（含香港）';
+    const regionLabel = LOAN_REGION_LABELS[t.loanRegion] || '境内';
     t.updatedAt = nowStr();
-    addLog(id, `数据同步与确认：开始同步贷款数据（基准年度 ${getTaskBaselineYear(t)}，${regionLabel}，${loanTypeLabel}，全部行业）`);
+    addLog(id, `数据同步与确认：开始同步贷款数据（基准年度 ${getTaskBaselineYear(t)}，${regionLabel}，${loanTypeLabel}，${sampleFilterLabel(t.highCarbonFlag)}）`);
     render();
     setTimeout(() => {
       recordsByTask[id] = mockLoanSyncRecords(id, t);
@@ -10031,6 +10386,7 @@
         return;
       }
       t.loanDataSynced = true;
+      t.industryDisambigCompleted = false;
       t.basicInfoYear = getTaskBaselineYear(t);
       t.financialDataYear = getTaskReportYear(t);
       ensureBankCapitalMetricsFromLoanSync(t);
@@ -10047,11 +10403,25 @@
     const t = getTask(id);
     if (!t || t.status !== 'DRAFT' || t.internalRatingDataSynced) return;
     if (!t.loanDataSynced) { toast('请先同步贷款数据', 'error'); return; }
+    if (!t.industryDisambigCompleted) { toast('请先完成人工甄别归类高碳行业', 'error'); return; }
     t.syncingStep = 'INTERNAL_RATING';
     addLog(id, '数据同步与确认：开始同步内部评级');
     render();
     setTimeout(() => {
       (recordsByTask[id] || []).forEach((r, i) => {
+        if (r.reportMissing || r.hasInternalRatingModel === false) {
+          r.hasInternalRatingModel = false;
+          r.internalRating = '';
+          r.pdInternalT0 = null;
+          r.ratingModelCode = '';
+          r.ratingModelName = '';
+          r.ratingResult1 = '';
+          r.qualitativeScore = null;
+          r.creditScore = null;
+          r.governmentSupportScore = null;
+          return;
+        }
+        r.hasInternalRatingModel = true;
         if (r.pdValue == null) r.pdValue = 0.02;
         r.internalRating = r.internalRating || (r.pdValue >= 0.08 ? 'BBB-' : r.pdValue >= 0.03 ? 'BBB+' : 'A');
         r.pdInternalT0 = r.pdValue;
@@ -10079,16 +10449,17 @@
     addLog(id, '数据同步与确认：开始同步预期信用损失');
     render();
     setTimeout(() => {
-      (recordsByTask[id] || []).forEach((r) => {
-        r.pdEclT0 = r.pd0 ?? r.pdValue ?? 0.02;
-        r.lgdT0 = r.lgd0 ?? 0.45;
+      const targets = (recordsByTask[id] || []).filter(isEclSyncTarget);
+      targets.forEach((r) => {
+        r.pdEclT0 = r.pdEclT0 ?? r.pd0 ?? r.pdValue ?? 0.02;
+        r.lgdT0 = r.lgdT0 ?? r.lgd0 ?? 0.45;
         r.eclMatched = true;
       });
       t.eclDataSynced = true;
       t.syncingStep = '';
       t.updatedAt = nowStr();
-      addLog(id, '数据同步与确认：预期信用损失同步完成');
-      toast('预期信用损失同步完成');
+      addLog(id, `数据同步与确认：预期信用损失同步完成（${targets.length} 户无内评模型或无财报客户）`);
+      toast(`预期信用损失同步完成（${targets.length} 户）`);
       render();
     }, 600);
   }
@@ -10096,7 +10467,7 @@
   function generateBaseTable(id, key) {
     const t = getTask(id);
     if (!t || t.baseTablesGenerated) return;
-    if (!t.loanDataSynced || !t.internalRatingDataSynced || !hasTaskFinancialDataSynced(t) || !t.eclDataSynced || !t.gelanDataSynced) {
+    if (!t.loanDataSynced || !t.industryDisambigCompleted || !t.internalRatingDataSynced || !hasTaskFinancialDataSynced(t) || !t.eclDataSynced || !t.gelanDataSynced) {
       toast('请按顺序完成全部数据同步', 'error'); return;
     }
     const index = baseTableGenerationSteps.findIndex((item) => item.key === key);
@@ -10992,8 +11363,11 @@
 
   /* —— 因子 CRUD —— */
   function renderFactorModalBody(f, readonly) {
+    const scope = f?.factorScope || modalState?.factorScope || 'INDUSTRY';
     if (readonly) {
       return `
+        <div class="form-row"><label>因子类型</label><input class="input" value="${scope === 'CUSTOMER' ? '客户实际因子' : '行业因子'}" disabled /></div>
+        ${scope === 'CUSTOMER' ? `<div class="form-row"><label>客户名称</label><input class="input" value="${esc(f?.customerName || '')}" disabled /></div>` : ''}
         <div class="form-row">
           <label>因子名称</label>
           <input class="input" value="${esc(f?.factorName || '')}" disabled />
@@ -11016,6 +11390,8 @@
       `<option value="${esc(m)}" ${f?.industry === m ? 'selected' : ''}>${esc(m)}</option>`).join('')}`;
     const unit = f?.unit || 'tCO2e/百万元';
     return `
+        <div class="form-row"><label>因子类型</label><select class="select" id="f_scope" disabled><option value="INDUSTRY" ${scope === 'INDUSTRY' ? 'selected' : ''}>行业因子</option><option value="CUSTOMER" ${scope === 'CUSTOMER' ? 'selected' : ''}>客户实际因子</option></select></div>
+        ${scope === 'CUSTOMER' ? `<div class="form-row"><label><span class="req">*</span>客户名称</label><input class="input" id="f_customer" placeholder="请输入高碳客户名称" value="${esc(f?.customerName || '')}" /></div>` : ''}
         <div class="form-row">
           <label><span class="req">*</span>因子名称</label>
           <input class="input" id="f_name" placeholder="如 化工-有机化学原料" value="${esc(f?.factorName || '')}" />
@@ -11039,9 +11415,9 @@
         </div>`;
   }
 
-  function openFactorModal(mode, id) {
+  function openFactorModal(mode, id, factorScope) {
     const f = id ? factors.find((x) => x.id === id) : null;
-    modalState = { type: 'factor', mode, id };
+    modalState = { type: 'factor', mode, id, factorScope: f?.factorScope || factorScope || factorScopeFilter };
     const titles = { create: '新增因子', view: '查看因子', edit: '编辑因子' };
     const readonly = mode === 'view';
     document.querySelector('#modalFactor .modal-hd').textContent = titles[mode] || '因子';
@@ -11059,7 +11435,9 @@
     const industry = document.getElementById('f_ind').value;
     const unit = document.getElementById('f_unit').value;
     const factorValue = parseFloat(document.getElementById('f_val').value);
-    if (!name || !industry || !unit || !Number.isFinite(factorValue)) {
+    const factorScope = document.getElementById('f_scope')?.value || modalState?.factorScope || 'INDUSTRY';
+    const customerName = document.getElementById('f_customer')?.value?.trim() || '';
+    if (!name || !industry || !unit || !Number.isFinite(factorValue) || (factorScope === 'CUSTOMER' && !customerName)) {
       toast('请填写必填项', 'error');
       return;
     }
@@ -11071,6 +11449,8 @@
       factorValue,
       unit,
       industry,
+      factorScope,
+      customerName: factorScope === 'CUSTOMER' ? customerName : '',
       factorCode: existing?.factorCode || `EMISSION_${industry}_${Date.now()}`,
       gbCode: existing?.gbCode || '',
       subType: existing?.subType || '',
@@ -11546,8 +11926,8 @@
     editTask,
     confirmDeleteTask: executeConfirmDelete, cancelDeleteTask: cancelConfirmDelete,
     executeConfirmDelete, cancelConfirmDelete,
-    startCreateTask, cancelCreateTask, cancelEditTask, onTaskReportEndChange, saveTask, deleteTask,
-    onStressPurposeChange, onIndustrySearchInput, onIndustrySelectAll, onIndustryClearAll, onIndustryCheckClick, onIndustryItemClick,
+    startCreateTask, cancelCreateTask, cancelEditTask, onTaskReportEndChange, onTaskBaselineYearChange, saveTask, deleteTask,
+    onStressPurposeChange, onSampleFilterModeChange, onIndustrySearchInput, onIndustrySelectAll, onIndustryClearAll, onIndustryCheckClick, onIndustryItemClick,
     startSync, syncAirportThroughput, confirmList, excludeRecord, setSyncStatusFilter, setFinancialVersionFilter,
     saveSyncFilters, openExcludeCustomerModal, toggleExcludeAll, confirmExcludeCustomers,
     openIndustryDisambigModal, openIndustryEditModal, saveIndustryDisambig,
@@ -11561,7 +11941,7 @@
     calcIndustryAvg, fillIndustryData, confirmAvg, fetchCredit, fetchEcl, runStress,
     goToApplicationReport, openRegulatoryReportModal,
     togglePdAdjust, setIncludeInternalSummary,
-    openFactorModal, saveFactor, viewFactor: (id) => openFactorModal('view', id),
+    openFactorModal, saveFactor, setFactorScopeFilter, viewFactor: (id) => openFactorModal('view', id),
     editFactor: (id) => openFactorModal('edit', id), deleteFactor,
     openScenarioModal, saveScenario, viewScenario: (id) => openScenarioModal('view', id),
     editScenario: (id) => openScenarioModal('edit', id), publishScenario, disableScenario, deleteScenario,

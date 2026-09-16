@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>气候风险投融资压测系统 v1.1</title>
+  <title>气候风险投融资压测系统 v1.2.1</title>
   <link rel="stylesheet" href="css/theme.css?v=20260726c" />
   <link rel="stylesheet" href="css/full-ext.css?v=20260909-round2" />
 </head>
@@ -112,7 +112,7 @@
       <header class="app-header" id="appHeader">
         <div class="app-header-left"></div>
         <div class="app-header-actions">
-          <span class="app-version-badge" id="appVersionBadge" title="当前原型版本">v1.1</span>
+          <span class="app-version-badge" id="appVersionBadge" title="当前原型版本">v1.2</span>
           <button type="button" class="btn btn-default btn-sm app-release-notes-btn" id="btnReleaseNotes" onclick="CRST_APP.openReleaseNotes()">更新说明</button>
         </div>
       </header>
@@ -528,42 +528,28 @@
         </div>
         <div id="sj_import_panel" style="display:none">
           <div class="form-row">
-            <label><span class="req">*</span>请分别上传与数据处理结果一致的 5 张基础表</label>
+            <label><span class="req">*</span>必传以下3个Excel（分别进行模板校验）</label>
             <div class="sj-import-file-list">
             <div class="sj-import-file-row" id="sj_import_row_customerBasic">
               <div class="sj-import-file-label-wrap">
-                <div class="sj-import-file-label"><span class="req">*</span>高碳行业客户基础信息表</div>
+                <div class="sj-import-file-label"><span class="req">*</span>参试客户基础信息表.xlsx</div>
                 <span class="sj-import-file-name" id="sj_import_hint_customerBasic" hidden></span>
               </div>
               <button type="button" class="btn btn-upload" onclick="CRST_APP.mockPickStressImportFile('customerBasic')">选择文件</button>
             </div>
-            <div class="sj-import-file-row" id="sj_import_row_industryLoan">
+            <div class="sj-import-file-row" id="sj_import_row_customerFinancial">
               <div class="sj-import-file-label-wrap">
-                <div class="sj-import-file-label"><span class="req">*</span>分行业贷款信息表</div>
-                <span class="sj-import-file-name" id="sj_import_hint_industryLoan" hidden></span>
+                <div class="sj-import-file-label"><span class="req">*</span>参试客户基期财务数据表.xlsx</div>
+                <span class="sj-import-file-name" id="sj_import_hint_customerFinancial" hidden></span>
               </div>
-              <button type="button" class="btn btn-upload" onclick="CRST_APP.mockPickStressImportFile('industryLoan')">选择文件</button>
+              <button type="button" class="btn btn-upload" onclick="CRST_APP.mockPickStressImportFile('customerFinancial')">选择文件</button>
             </div>
-            <div class="sj-import-file-row" id="sj_import_row_internalPd">
+            <div class="sj-import-file-row" id="sj_import_row_bankBasicExternal">
               <div class="sj-import-file-label-wrap">
-                <div class="sj-import-file-label"><span class="req">*</span>无财务数据客户内部PD和LGD表</div>
-                <span class="sj-import-file-name" id="sj_import_hint_internalPd" hidden></span>
+                <div class="sj-import-file-label"><span class="req">*</span>华夏银行基础数据采集表（外报）.xlsx</div>
+                <span class="sj-import-file-name" id="sj_import_hint_bankBasicExternal" hidden></span>
               </div>
-              <button type="button" class="btn btn-upload" onclick="CRST_APP.mockPickStressImportFile('internalPd')">选择文件</button>
-            </div>
-            <div class="sj-import-file-row" id="sj_import_row_bankBasic">
-              <div class="sj-import-file-label-wrap">
-                <div class="sj-import-file-label"><span class="req">*</span>参试银行基础信息表</div>
-                <span class="sj-import-file-name" id="sj_import_hint_bankBasic" hidden></span>
-              </div>
-              <button type="button" class="btn btn-upload" onclick="CRST_APP.mockPickStressImportFile('bankBasic')">选择文件</button>
-            </div>
-            <div class="sj-import-file-row" id="sj_import_row_bankCapital">
-              <div class="sj-import-file-label-wrap">
-                <div class="sj-import-file-label"><span class="req">*</span>参试银行资本与拨备监管指标表</div>
-                <span class="sj-import-file-name" id="sj_import_hint_bankCapital" hidden></span>
-              </div>
-              <button type="button" class="btn btn-upload" onclick="CRST_APP.mockPickStressImportFile('bankCapital')">选择文件</button>
+              <button type="button" class="btn btn-upload" onclick="CRST_APP.mockPickStressImportFile('bankBasicExternal')">选择文件</button>
             </div>
           </div>
           </div>
@@ -587,10 +573,10 @@
     </div>
   </div>
 
-  <script src="js/carbon-calculation-logic.js?v=20260726b"></script>
-  <script src="js/industry-selector-data.js"></script>
-  <script src="js/release-notes.js?v=20260908a"></script>
-  <script src="js/store-full.js?v=20260726a"></script>
-  <script src="js/app-full.js?v=20260909-round2"></script>
+  <script src="js/carbon-calculation-logic.js?v=20260915-fix1"></script>
+  <script src="js/industry-selector-data.js?v=20260916-region-filter"></script>
+  <script src="js/release-notes.js?v=20260916-import-3files"></script>
+  <script src="js/store-full.js?v=20260916-pd-raw"></script>
+  <script src="js/app-full.js?v=20260916-remove-sync-caliber"></script>
 </body>
 </html>

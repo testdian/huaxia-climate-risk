@@ -107,6 +107,8 @@ window.CRST_CARBON = (function () {
       value: f.value ?? f.factorValue,
       unit: f.unit,
       status: f.status,
+      factorScope: f.factorScope || 'INDUSTRY',
+      customerName: f.customerName || '',
     })).filter((f) => f.code && f.status !== 'DISABLED');
   }
 
@@ -118,9 +120,19 @@ window.CRST_CARBON = (function () {
     return record.standardIndustry || '';
   }
 
+  function isHighCarbonRecord(record) {
+    return HIGH_CARBON_CATEGORIES.includes(resolveRecordIndustryMajor(record));
+  }
+
   function findEmissionFactor(record, factorLibrary) {
     const lib = normalizeFactorLib(factorLibrary);
-    const pool = lib.length ? lib : INDUSTRY_EMISSION_FACTORS;
+    const customerName = String(record.companyName || record.customerName || '').trim();
+    const customerFactor = customerName
+      ? lib.find((f) => f.factorScope === 'CUSTOMER' && String(f.customerName || '').trim() === customerName)
+      : null;
+    if (customerFactor) return customerFactor;
+    const industryFactors = lib.filter((f) => f.factorScope !== 'CUSTOMER');
+    const pool = industryFactors.length ? industryFactors : INDUSTRY_EMISSION_FACTORS;
     if (record.emissionFactorCode) {
       const f = pool.find((x) => (x.code || x.factorCode) === record.emissionFactorCode);
       if (f) return f;
@@ -215,13 +227,13 @@ window.CRST_CARBON = (function () {
     let revenue = revenue0;
     for (let y = 2026; y <= testYear; y++) revenue *= 1 + revenueGrowth;
 
-    const emission = calcEmission(revenue, null, record, options?.factorLibrary);
+    const isHighCarbon = isHighCarbonRecord(record);
+    const emission = isHighCarbon ? calcEmission(revenue, null, record, options?.factorLibrary) : 0;
     const freeQuota = options?.freeQuotaRatio ?? interpolateQuota(scenario, testYear);
     const carbonPrice = options?.carbonPrice ?? interpolateCarbonPrice(scenario, testYear);
-    const carbonCost = calcCarbonCost(emission, freeQuota, carbonPrice, record);
+    const carbonCost = isHighCarbon ? calcCarbonCost(emission, freeQuota, carbonPrice, record) : 0;
 
     const costIncomeRatio = record.costIncomeRatio ?? 0.85;
-    const isHighCarbon = HIGH_CARBON_CATEGORIES.includes(resolveRecordIndustryMajor(record));
     const operatingExpense = isHighCarbon
       ? revenue * costIncomeRatio + carbonCost
       : revenue * costIncomeRatio;
@@ -252,8 +264,10 @@ window.CRST_CARBON = (function () {
       eclAfter: Math.round(eclAfter),
       impactRate: Math.round(impactRate * 10000) / 10000,
       defaultFlag,
-      emissionFactorUsed: findEmissionFactor(record, options?.factorLibrary)?.code
-        || findEmissionFactor(record, options?.factorLibrary)?.factorCode,
+      emissionFactorUsed: isHighCarbon
+        ? (findEmissionFactor(record, options?.factorLibrary)?.code
+          || findEmissionFactor(record, options?.factorLibrary)?.factorCode)
+        : null,
     };
   }
 

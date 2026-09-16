@@ -103,7 +103,7 @@ try {
   const taskName = `验证_${Date.now()}`;
   await page.click('button:has-text("新建任务")');
   await page.fill('#d_taskName', taskName);
-  await page.selectOption('#d_reportYear', '2026');
+  await page.selectOption('#d_baselineYear', '2026');
   await page.selectOption('#d_loanType', 'CORPORATE');
   await page.selectOption('#d_loanRegion', 'DOMESTIC');
   await page.click('.task-flow-card .btn-primary');
@@ -112,6 +112,10 @@ try {
   await page.click('.module-subnav-btn:has-text("财务数据")');
   await page.click('button:has-text("同步贷款数据")');
   await waitToast(page, '贷款数据', 8000);
+  await page.click('button:has-text("人工甄别归类高碳行业")');
+  await page.click('#modalIndustryDisambig .btn-primary');
+  await page.click('button:has-text("同步内部评级数据")');
+  await waitToast(page, '内部评级', 8000);
   await page.click('button:has-text("同步财务数据")');
   await waitToast(page, '同步完成', 8000);
   const disambigBtn = page.locator('button:has-text("行业甄别确认")');

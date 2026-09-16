@@ -295,7 +295,7 @@ function renderFactors() {
     .join('');
   return `<div class="card">
       <div class="toolbar">
-        <h2 class="page-title">因子库管理</h2>
+        <h2 class="page-title">高碳行业因子库</h2>
         <button type="button" class="btn btn-default" id="btnRefreshFactors">刷新</button>
       </div>
       <div class="table-wrap">

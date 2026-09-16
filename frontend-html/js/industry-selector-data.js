@@ -84,8 +84,40 @@ window.CRST_INDUSTRY_SELECTOR = (function () {
     return { id: item.code, leaf: true, code: item.code, name: item.name, category: item.category };
   }
 
+  /** 高碳行业快捷节点：8 大行业、34 个 GB/T 4754-2017 四级代码 */
+  const HIGH_CARBON_INDUSTRY_NODE = {
+    id: 'HIGH_CARBON',
+    name: '高碳行业',
+    children: TEST_INDUSTRY_MAJORS.map((category) => ({
+      id: `HIGH_CARBON_${category}`,
+      name: category,
+      children: PBOC_INDUSTRY_LEAVES.filter((x) => x.category === category).map(leafNode),
+    })),
+  };
+
+  /** 非高碳行业快捷节点：按国民经济行业门类汇总，供样本筛选自动勾选 */
+  const NON_HIGH_CARBON_INDUSTRY_LEAVES = [
+    { code: 'NONHC_A', name: '农、林、牧、渔业', category: '非高碳行业' },
+    { code: 'NONHC_B', name: '采矿业（非高碳）', category: '非高碳行业' },
+    { code: 'NONHC_C', name: '制造业（非高碳）', category: '非高碳行业' },
+    { code: 'NONHC_D', name: '电力、热力、燃气及水生产和供应业（非高碳）', category: '非高碳行业' },
+    { code: 'NONHC_E', name: '建筑业', category: '非高碳行业' },
+    { code: 'NONHC_F', name: '批发和零售业', category: '非高碳行业' },
+    { code: 'NONHC_G', name: '交通运输、仓储和邮政业（非高碳）', category: '非高碳行业' },
+    { code: 'NONHC_I', name: '信息传输、软件和信息技术服务业', category: '非高碳行业' },
+    { code: 'NONHC_J', name: '金融业', category: '非高碳行业' },
+  ];
+  const NON_HIGH_CARBON_LEAF_MAP = Object.fromEntries(NON_HIGH_CARBON_INDUSTRY_LEAVES.map((x) => [x.code, x]));
+  const NON_HIGH_CARBON_INDUSTRY_NODE = {
+    id: 'NON_HIGH_CARBON',
+    name: '非高碳行业',
+    children: NON_HIGH_CARBON_INDUSTRY_LEAVES.map(leafNode),
+  };
+
   /** 级联树（含人行涉及行业及常见门类，供浏览勾选） */
   const INDUSTRY_SELECTOR_TREE = [
+    HIGH_CARBON_INDUSTRY_NODE,
+    NON_HIGH_CARBON_INDUSTRY_NODE,
     { id: 'A', name: '农、林、牧、渔业', children: [] },
     { id: 'B', name: '采矿业', children: [] },
     {
@@ -215,6 +247,10 @@ window.CRST_INDUSTRY_SELECTOR = (function () {
     return PBOC_INDUSTRY_LEAVES.map((x) => x.code);
   }
 
+  function getNonHighCarbonCodes() {
+    return NON_HIGH_CARBON_INDUSTRY_LEAVES.map((x) => x.code);
+  }
+
   function formatCodeDisplay(code) {
     return String(code || '').replace(/^[A-Z]/, '');
   }
@@ -222,7 +258,9 @@ window.CRST_INDUSTRY_SELECTOR = (function () {
   function formatSelectedSummary(codes) {
     const list = (codes || []).map((c) => {
       const item = LEAF_MAP[c];
-      return item ? `${formatCodeDisplay(c)}${item.name}` : c;
+      if (item) return `${formatCodeDisplay(c)}${item.name}`;
+      const nonHighCarbonItem = NON_HIGH_CARBON_LEAF_MAP[c];
+      return nonHighCarbonItem ? nonHighCarbonItem.name : c;
     });
     return list.join('；');
   }
@@ -249,9 +287,12 @@ window.CRST_INDUSTRY_SELECTOR = (function () {
   return {
     PBOC_INDUSTRY_LEAVES,
     LEAF_MAP,
+    NON_HIGH_CARBON_INDUSTRY_LEAVES,
+    NON_HIGH_CARBON_LEAF_MAP,
     TEST_INDUSTRY_MAJORS,
     INDUSTRY_SELECTOR_TREE,
     getPbocDefaultCodes,
+    getNonHighCarbonCodes,
     getTestIndustryMajors,
     resolveTestIndustryMajor,
     formatCodeDisplay,

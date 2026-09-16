@@ -4,8 +4,8 @@
  */
 import { test, expect } from '@playwright/test';
 
-const BASE = process.env.CRST_BASE || 'http://localhost:8765';
-const URL = `${BASE}/index-full.html`;
+const BASE = process.env.CRST_BASE || 'http://localhost:8888';
+const URL = `${BASE}/index-full.html?v=20260915-fix1`;
 
 const SPEC = {
   primary: '#34776b',
@@ -26,7 +26,7 @@ test.describe('气候风险压测完整版', () => {
     await expect(page.locator('[data-nav-page="data-process"]')).toBeVisible();
     await expect(page.locator('[data-nav-page="stress-trans"]')).toBeVisible();
     await expect(page.locator('[data-nav-page="results"]')).toBeVisible();
-    await expect(page.locator('.footer')).toBeVisible();
+    await expect(page.locator('.main')).toBeVisible();
   });
 
   test('UI 设计规范 Token 抽检', async ({ page }) => {
@@ -60,7 +60,8 @@ test.describe('气候风险压测完整版', () => {
     await page.click('button:has-text("新建任务")');
     await page.waitForSelector('.task-flow-card');
     await page.fill('#d_taskName', taskName);
-    await page.selectOption('#d_reportYear', '2026');
+    await page.selectOption('#d_baselineYear', '2026');
+    await expect(page.locator('#d_reportYear')).toBeDisabled();
     await page.selectOption('#d_loanType', 'CORPORATE');
     await page.selectOption('#d_loanRegion', 'DOMESTIC');
     await page.click('.task-flow-card .btn-primary');
@@ -68,31 +69,21 @@ test.describe('气候风险压测完整版', () => {
     await expect(page.locator('#toast')).toContainText('任务已创建', { timeout: 3000 });
     await expect(page.locator('.breadcrumb')).toContainText(taskName);
 
-  await page.click('.module-subnav-btn:has-text("财务数据")');
+    await page.click('.module-subnav-btn:has-text("财务数据")');
     await page.click('button:has-text("同步贷款数据")');
     await page.waitForTimeout(1200);
-    await page.click('button:has-text("同步格澜数据")');
-    await page.waitForTimeout(1200);
+    await page.click('button:has-text("人工甄别归类高碳行业")');
+    await page.click('#modalIndustryDisambig .btn-primary');
+    await page.click('button:has-text("同步内部评级数据")');
+    await page.waitForTimeout(800);
     await page.click('button:has-text("同步财务数据")');
     await expect(page.locator('#toast')).toContainText('同步完成', { timeout: 5000 });
-
-    const disambigBtn = page.locator('button:has-text("行业甄别确认")');
-    if (await disambigBtn.isVisible()) {
-      await disambigBtn.click();
-      await page.locator('.disambig-note').first().fill('E2E甄别');
-      await page.click('#modalIndustryDisambig .btn-primary');
-      await expect(page.locator('#toast')).toContainText('甄别', { timeout: 3000 });
-    }
-    const deleteBtn = page.locator('table tbody button.btn-link:has-text("删除")');
-    while (await deleteBtn.count() > 0) {
-      await deleteBtn.first().click();
-      await page.waitForTimeout(300);
-    }
-    if (await page.locator('button:has-text("导入处理结果")').isVisible()) {
-      await page.click('button:has-text("导入处理结果")');
-      await page.click('button:has-text("选择 Excel 文件")');
-      await page.click('#modalDataProcessImport .btn-primary');
-      await page.waitForTimeout(500);
+    await page.click('button:has-text("同步预期信用损失数据")');
+    await page.waitForTimeout(800);
+    await page.click('button:has-text("同步格澜数据")');
+    await page.waitForTimeout(1000);
+    for (const label of ['生成参试客户基础信息表', '生成参试客户基期财务数据表', '生成参试银行基础信息表', '生成高碳行业客户基础信息表', '生成分行业贷款信息表']) {
+      await page.click(`button:has-text("${label}")`);
     }
 
     await page.click('[data-nav-page="stress-trans"]');
@@ -116,7 +107,7 @@ test.describe('气候风险压测完整版', () => {
 
   test('基础配置 CRUD 抽检', async ({ page }) => {
     await page.click('#menu a[data-page="factors"]');
-    await page.click('button:has-text("新增因子")');
+    await page.click('button:has-text("新增行业因子")');
     await page.fill('#f_name', 'E2E测试因子');
     await page.selectOption('#f_ind', '化工');
     await page.fill('#f_val', '0.05');
@@ -138,7 +129,7 @@ test.describe('气候风险压测完整版', () => {
     const name = `草稿测试_${Date.now()}`;
     await page.click('button:has-text("新建任务")');
     await page.fill('#d_taskName', name);
-    await page.selectOption('#d_reportYear', '2026');
+    await page.selectOption('#d_baselineYear', '2026');
     await page.selectOption('#d_loanType', 'CORPORATE');
     await page.selectOption('#d_loanRegion', 'DOMESTIC');
     await page.click('.task-flow-card .btn-primary');
@@ -149,7 +140,7 @@ test.describe('气候风险压测完整版', () => {
     await row.locator('button:has-text("编辑")').click();
     await expect(page.locator('.module-subnav-btn.active')).toContainText('基本信息');
     await expect(page.locator('.step-panel-title:has-text("编辑任务")')).toBeVisible();
-    await expect(page.locator('#d_reportYear')).toBeEnabled();
+    await expect(page.locator('#d_reportYear')).toBeDisabled();
     await expect(page.locator('#d_taskName')).toHaveValue(name);
 
     await page.locator('.breadcrumb a').first().click();

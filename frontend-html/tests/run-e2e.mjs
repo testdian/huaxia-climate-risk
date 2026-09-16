@@ -9,8 +9,8 @@ import { dirname, join } from 'path';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 
-const BASE = process.env.CRST_BASE || 'http://localhost:8765';
-const URL = `${BASE}/index-full.html`;
+const BASE = process.env.CRST_BASE || 'http://localhost:8888';
+const URL = `${BASE}/index-full.html?v=20260915-fix1`;
 
 const results = { pass: [], fail: [], warn: [] };
 
@@ -86,7 +86,7 @@ async function main() {
     await page.click('button:has-text("新建任务")');
     await page.waitForSelector('.task-flow-card');
     await page.fill('#d_taskName', taskName);
-    await page.selectOption('#d_reportYear', '2026');
+    await page.selectOption('#d_baselineYear', '2026');
     await page.selectOption('#d_loanType', 'CORPORATE');
     await page.selectOption('#d_loanRegion', 'DOMESTIC');
     await page.click('.task-flow-card .btn-primary');
@@ -97,6 +97,10 @@ async function main() {
     await page.click('.module-subnav-btn:has-text("财务数据")');
     await page.click('button:has-text("同步贷款数据")');
     await expectToastText(page, '贷款数据', 10000);
+    await page.click('button:has-text("人工甄别归类高碳行业")');
+    await page.click('#modalIndustryDisambig .btn-primary');
+    await page.click('button:has-text("同步内部评级数据")');
+    await expectToastText(page, '内部评级', 10000);
     await page.click('button:has-text("同步财务数据")');
     await expectToastText(page, '同步', 10000);
     ok('开始同步 → 待确认');
