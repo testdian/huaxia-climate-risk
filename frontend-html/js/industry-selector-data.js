@@ -104,8 +104,18 @@ window.CRST_INDUSTRY_SELECTOR = (function () {
     { code: 'NONHC_E', name: '建筑业', category: '非高碳行业' },
     { code: 'NONHC_F', name: '批发和零售业', category: '非高碳行业' },
     { code: 'NONHC_G', name: '交通运输、仓储和邮政业（非高碳）', category: '非高碳行业' },
+    { code: 'NONHC_H', name: '住宿和餐饮业', category: '非高碳行业' },
     { code: 'NONHC_I', name: '信息传输、软件和信息技术服务业', category: '非高碳行业' },
     { code: 'NONHC_J', name: '金融业', category: '非高碳行业' },
+    { code: 'NONHC_K', name: '房地产业', category: '非高碳行业' },
+    { code: 'NONHC_L', name: '租赁和商务服务业', category: '非高碳行业' },
+    { code: 'NONHC_M', name: '科学研究和技术服务业', category: '非高碳行业' },
+    { code: 'NONHC_N', name: '水利、环境和公共设施管理业', category: '非高碳行业' },
+    { code: 'NONHC_O', name: '居民服务、修理和其他服务业', category: '非高碳行业' },
+    { code: 'NONHC_P', name: '教育', category: '非高碳行业' },
+    { code: 'NONHC_Q', name: '卫生和社会工作', category: '非高碳行业' },
+    { code: 'NONHC_R', name: '文化、体育和娱乐业', category: '非高碳行业' },
+    { code: 'NONHC_S', name: '公共管理、社会保障和社会组织', category: '非高碳行业' },
   ];
   const NON_HIGH_CARBON_LEAF_MAP = Object.fromEntries(NON_HIGH_CARBON_INDUSTRY_LEAVES.map((x) => [x.code, x]));
   const NON_HIGH_CARBON_INDUSTRY_NODE = {
@@ -241,6 +251,15 @@ window.CRST_INDUSTRY_SELECTOR = (function () {
     ] },
     { id: 'I', name: '信息传输、软件和信息技术服务业', children: [] },
     { id: 'J', name: '金融业', children: [] },
+    { id: 'K', name: '房地产业', children: [] },
+    { id: 'L', name: '租赁和商务服务业', children: [] },
+    { id: 'M', name: '科学研究和技术服务业', children: [] },
+    { id: 'N', name: '水利、环境和公共设施管理业', children: [] },
+    { id: 'O', name: '居民服务、修理和其他服务业', children: [] },
+    { id: 'P', name: '教育', children: [] },
+    { id: 'Q', name: '卫生和社会工作', children: [] },
+    { id: 'R', name: '文化、体育和娱乐业', children: [] },
+    { id: 'S', name: '公共管理、社会保障和社会组织', children: [] },
   ];
 
   function getPbocDefaultCodes() {

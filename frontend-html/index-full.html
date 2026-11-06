@@ -1,11 +1,12 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
+  <link rel="icon" href="data:,">
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>气候风险投融资压测系统 v1.2.1</title>
   <link rel="stylesheet" href="css/theme.css?v=20260726c" />
-  <link rel="stylesheet" href="css/full-ext.css?v=20260909-round2" />
+  <link rel="stylesheet" href="css/full-ext.css?v=20261106-task-exports" />
 </head>
 <body class="app-body">
   <input type="file" id="testPeriodFinancialFile" accept=".xlsx,.xls" hidden onchange="CRST_APP.confirmTestPeriodFinancialFile(this)" />
@@ -21,7 +22,7 @@
           <li class="menu-section menu-section--nav open" data-section="data-process">
             <button type="button" class="menu-level-1 menu-level-1--nav active" data-nav-page="data-process" title="数据处理">
               <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8"/></svg></span>
-              <span class="menu-level-text">数据处理</span>
+              <span class="menu-level-text">数据处理</span><span class="menu-new">NEW</span>
             </button>
           </li>
           <li class="menu-section open" data-section="item-calculation">
@@ -33,23 +34,23 @@
             <ul class="menu-sub">
               <li><a data-page="scenario-analysis" title="情景及特殊客户导入">
                 <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19h16M4 15l4-8 4 5 4-9 4 12"/></svg></span>
-                <span class="menu-text">情景及特殊客户导入</span>
+                <span class="menu-text">情景及特殊客户导入</span><span class="menu-new">NEW</span>
               </a></li>
               <li><a data-page="stress-fin-trans" title="财务传导（含逐户违约判定）">
                 <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg></span>
-                <span class="menu-text">财务传导（含逐户违约判定）</span>
+                <span class="menu-text">财务传导（含逐户违约判定）</span><span class="menu-new">NEW</span>
               </a></li>
               <li><a data-page="stress-pd-lgd" title="PD/LGD计算">
                 <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19h16M4 15l4-8 4 5 4-9 4 12"/></svg></span>
-                <span class="menu-text">PD/LGD计算</span>
+                <span class="menu-text">PD/LGD计算</span><span class="menu-new">NEW</span>
               </a></li>
               <li><a data-page="stress-npl-prov" title="不良和拨备计算">
                 <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></span>
-                <span class="menu-text">不良和拨备计算</span>
+                <span class="menu-text">不良和拨备计算</span><span class="menu-new">NEW</span>
               </a></li>
               <li><a data-page="stress-item-results" title="客户及行业压力测试分项结果">
                 <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19h16M6 16V9M12 16V5M18 16v-3"/></svg></span>
-                <span class="menu-text">客户及行业压力测试分项结果</span>
+                <span class="menu-text">客户及行业压力测试分项结果</span><span class="menu-new">NEW</span>
               </a></li>
               <li><a data-page="stress-summary" title="压力测试结果汇总表">
                 <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4zM8 9h8M8 13h8M8 17h5"/></svg></span>
@@ -60,13 +61,13 @@
           <li class="menu-section menu-section--nav" data-section="results">
             <button type="button" class="menu-level-1 menu-level-1--nav" data-nav-page="results" title="测试结果分析">
               <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 20V10M12 20V4M6 20v-6"/></svg></span>
-              <span class="menu-level-text">测试结果分析</span>
+              <span class="menu-level-text">测试结果分析</span><span class="menu-new">NEW</span>
             </button>
           </li>
           <li class="menu-section menu-section--nav" data-section="exports">
             <button type="button" class="menu-level-1 menu-level-1--nav" data-nav-page="exports" title="数据导出">
               <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg></span>
-              <span class="menu-level-text">数据导出</span>
+              <span class="menu-level-text">数据导出</span><span class="menu-new">NEW</span>
             </button>
           </li>
           <li class="menu-section menu-section--nav" data-section="risk-warning">
@@ -112,7 +113,7 @@
       <header class="app-header" id="appHeader">
         <div class="app-header-left"></div>
         <div class="app-header-actions">
-          <span class="app-version-badge" id="appVersionBadge" title="当前原型版本">v1.2</span>
+          <span class="app-version-badge" id="appVersionBadge" title="当前原型版本">v1.1</span>
           <button type="button" class="btn btn-default btn-sm app-release-notes-btn" id="btnReleaseNotes" onclick="CRST_APP.openReleaseNotes()">更新说明</button>
         </div>
       </header>
@@ -322,6 +323,8 @@
       <div class="modal-bd">
         <p class="modal-desc">上传《情景参数表.xlsx》，导入现有政策、温室世界、有序转型三类情景；每类情景分别形成“使用CCUS”和“不使用CCUS”两种计算组合。导入后请核对并保存。</p>
         <div class="toolbar" style="margin-top:12px">
+          <button type="button" class="btn btn-default" onclick="CRST_APP.downloadImportTemplate('scenarioParams')">下载导入模板</button>
+          <button type="button" class="change-marker" aria-label="查看变更说明 09" onclick="CRST_APP.openReleaseNotes(9)">09 NEW</button>
           <button type="button" class="btn btn-default" onclick="CRST_APP.mockPickScenarioParamsImportFile()">选择 Excel 文件</button>
           <span class="flow-hint" id="scenario_params_import_hint">未选择文件</span>
         </div>
@@ -340,6 +343,8 @@
       <div class="modal-bd">
         <p class="modal-desc">上传特殊客户清单。系统预勾选PD内评t0=100%、PDECLt0=100%以及基期五级分类为次级、可疑、损失的客户，可继续补充其他特殊客户。</p>
         <div class="toolbar" style="margin:12px 0">
+          <button type="button" class="btn btn-default" onclick="CRST_APP.downloadImportTemplate('specialCustomer')">下载导入模板</button>
+          <button type="button" class="change-marker" aria-label="查看变更说明 09" onclick="CRST_APP.openReleaseNotes(9)">09 NEW</button>
           <button type="button" class="btn btn-default" onclick="CRST_APP.mockPickSpecialCustomerImportFile()">选择 Excel 文件</button>
           <span class="flow-hint" id="special_customer_import_hint">未选择文件</span>
         </div>
@@ -528,28 +533,28 @@
         </div>
         <div id="sj_import_panel" style="display:none">
           <div class="form-row">
-            <label><span class="req">*</span>必传以下3个Excel（分别进行模板校验）</label>
+            <label><span class="req">*</span>必传以下3个Excel（分别进行模板校验） <button type="button" class="change-marker" aria-label="查看变更说明 09" onclick="CRST_APP.openReleaseNotes(9)">09 NEW</button></label>
             <div class="sj-import-file-list">
             <div class="sj-import-file-row" id="sj_import_row_customerBasic">
               <div class="sj-import-file-label-wrap">
                 <div class="sj-import-file-label"><span class="req">*</span>参试客户基础信息表.xlsx</div>
                 <span class="sj-import-file-name" id="sj_import_hint_customerBasic" hidden></span>
               </div>
-              <button type="button" class="btn btn-upload" onclick="CRST_APP.mockPickStressImportFile('customerBasic')">选择文件</button>
+              <div class="template-action-group"><button type="button" class="btn btn-default" onclick="CRST_APP.downloadImportTemplate('customerBasic')">下载模板</button><button type="button" class="btn btn-upload" onclick="CRST_APP.mockPickStressImportFile('customerBasic')">选择文件</button></div>
             </div>
             <div class="sj-import-file-row" id="sj_import_row_customerFinancial">
               <div class="sj-import-file-label-wrap">
                 <div class="sj-import-file-label"><span class="req">*</span>参试客户基期财务数据表.xlsx</div>
                 <span class="sj-import-file-name" id="sj_import_hint_customerFinancial" hidden></span>
               </div>
-              <button type="button" class="btn btn-upload" onclick="CRST_APP.mockPickStressImportFile('customerFinancial')">选择文件</button>
+              <div class="template-action-group"><button type="button" class="btn btn-default" onclick="CRST_APP.downloadImportTemplate('customerFinancial')">下载模板</button><button type="button" class="btn btn-upload" onclick="CRST_APP.mockPickStressImportFile('customerFinancial')">选择文件</button></div>
             </div>
             <div class="sj-import-file-row" id="sj_import_row_bankBasicExternal">
               <div class="sj-import-file-label-wrap">
                 <div class="sj-import-file-label"><span class="req">*</span>华夏银行基础数据采集表（外报）.xlsx</div>
                 <span class="sj-import-file-name" id="sj_import_hint_bankBasicExternal" hidden></span>
               </div>
-              <button type="button" class="btn btn-upload" onclick="CRST_APP.mockPickStressImportFile('bankBasicExternal')">选择文件</button>
+              <div class="template-action-group"><button type="button" class="btn btn-default" onclick="CRST_APP.downloadImportTemplate('bankBasicExternal')">下载模板</button><button type="button" class="btn btn-upload" onclick="CRST_APP.mockPickStressImportFile('bankBasicExternal')">选择文件</button></div>
             </div>
           </div>
           </div>
@@ -574,9 +579,10 @@
   </div>
 
   <script src="js/carbon-calculation-logic.js?v=20260916-item-four-tables"></script>
-  <script src="js/industry-selector-data.js?v=20260916-region-filter"></script>
-  <script src="js/release-notes.js?v=20260916-import-3files"></script>
+  <script src="js/industry-selector-data.js?v=20261105-v13"></script>
+  <script src="js/release-notes.js?v=20261106-task-exports"></script>
   <script src="js/store-full.js?v=20260916-pd-raw"></script>
-  <script src="js/app-full.js?v=20260917-item-result-pagination-npl-cleanup"></script>
+  <script src="js/financial-template-fields.js?v=20260917-fields"></script>
+  <script src="js/app-full.js?v=20261106-task-exports"></script>
 </body>
 </html>
